@@ -1,0 +1,17 @@
+# Dépendances
+node_modules/
+
+# Configuration locale : contient la clé API → JAMAIS committée
+config.json
+
+# Build / distribution
+dist/
+out/
+
+# Captures de staging (temporaires)
+captures-staging/
+
+# Divers OS / éditeurs
+.DS_Store
+Thumbs.db
+*.log

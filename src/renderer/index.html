@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self';">
+  <title>Backcountry Pathfinders</title>
+  <!-- Icônes Phosphor Light vendorées en local (CSP stricte, app hors-ligne) -->
+  <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <i class="ph-light ph-mountains brand-mark"></i>
+      <div>
+        <h1>Backcountry Pathfinders</h1>
+        <p class="subtitle" data-i18n="appSubtitle">Évaluateur de pistes de brousse — acquisition MSFS 2024</p>
+      </div>
+    </div>
+    <div class="conn">
+      <span id="status-dot" class="dot dot-off"></span>
+      <span id="status-text">Déconnecté</span>
+      <button id="btn-connect" class="btn btn-accent"><i class="ph-light ph-plugs"></i> Connecter SimConnect</button>
+      <!-- Bouton toggle bilingue FR / EN (en haut à droite, comme NavXpressVFR) -->
+      <button id="btn-lang-toggle" class="btn-lang" data-i18n-title="toggleTitle" title="Changer de langue / Switch language">
+        <span class="lang-fr lang-active">FR</span>
+        <span class="lang-separator">|</span>
+        <span class="lang-en">EN</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Bandeau « enregistrement du poser en cours » (caché par défaut) -->
+    <div id="rec-banner" class="rec-banner" hidden>
+      <i class="ph-light ph-record"></i> <span id="rec-banner-text"></span>
+    </div>
+
+    <section class="panel">
+      <h2><i class="ph-light ph-broadcast"></i> <span data-i18n="scanLive">Scan live</span></h2>
+      <p class="hint" id="api-hint">…</p>
+      <div class="grid">
+        <div class="cell"><label><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLat">Latitude</span></label><span id="v-lat" class="val">—</span></div>
+        <div class="cell"><label><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLon">Longitude</span></label><span id="v-lon" class="val">—</span></div>
+        <div class="cell"><label><i class="ph-light ph-arrow-line-up"></i> <span data-i18n="lblAmsl">Altitude MSL</span></label><span id="v-amsl" class="val">—</span><span class="unit">ft</span></div>
+        <div class="cell"><label><i class="ph-light ph-arrows-vertical"></i> <span data-i18n="lblAgl">Hauteur sol (AGL)</span></label><span id="v-agl" class="val">—</span><span class="unit">ft</span></div>
+        <div class="cell"><label><i class="ph-light ph-mountains"></i> <span data-i18n="lblRelief">Relief (GROUND ALT)</span></label><span id="v-ground" class="val">—</span><span class="unit">ft</span></div>
+        <div class="cell"><label><i class="ph-light ph-gauge"></i> <span data-i18n="lblGs">Vitesse sol</span></label><span id="v-gs" class="val">—</span><span class="unit">kt</span></div>
+        <div class="cell"><label><i class="ph-light ph-compass"></i> <span data-i18n="lblHdg">Cap vrai</span></label><span id="v-hdg" class="val">—</span><span class="unit">°</span></div>
+        <div class="cell"><label><i class="ph-light ph-stack"></i> <span data-i18n="lblSurf">Type de sol</span></label><span id="v-surf" class="val">—</span></div>
+        <div class="cell"><label><i class="ph-light ph-drop"></i> <span data-i18n="lblCond">État du sol</span></label><span id="v-cond" class="val">—</span></div>
+        <div class="cell"><label><i class="ph-light ph-airplane-landing"></i> <span data-i18n="lblOnGround">Au sol</span></label><span id="v-ground-flag" class="val">—</span></div>
+        <div class="cell"><label><i class="ph-light ph-hand-palm"></i> <span data-i18n="lblBrake">Frein parking</span></label><span id="v-brake" class="val">—</span></div>
+      </div>
+      <p class="note" data-i18n-html="note">
+        Rappel : <strong>type / état de sol</strong> ne sont fiables qu'<em>au contact</em> du sol.
+        Le <strong>relief</strong> (GROUND ALTITUDE) est lisible en vol — c'est la donnée centrale du scan.
+      </p>
+    </section>
+  </main>
+
+  <!-- Modale : enregistrer ce poser ? -->
+  <div id="save-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-airplane-landing"></i> <span data-i18n="modalSaveTitle">Enregistrer ce poser ?</span></h3>
+      <dl id="save-fields" class="modal-fields"></dl>
+      <p id="save-status" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-save-no" class="btn"><i class="ph-light ph-trash"></i> <span data-i18n="btnSaveNo">Ne pas enregistrer</span></button>
+        <button id="btn-save-yes" class="btn btn-accent"><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="btnSaveYes">Enregistrer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation d'effacement -->
+  <div id="confirm-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-warning"></i> <span data-i18n="modalConfirmTitle">Effacer ce poser ?</span></h3>
+      <p class="modal-text" data-i18n="modalConfirmText">…</p>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-confirm-discard" class="btn btn-danger"><i class="ph-light ph-trash"></i> <span data-i18n="btnConfirmDiscard">Effacer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

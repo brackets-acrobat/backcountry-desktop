@@ -1,0 +1,15 @@
+{
+  "_comment": "Copie ce fichier en config.json et renseigne ta clé API. config.json est gitignoré (il contient un secret).",
+
+  "apiBaseUrl": "http://localhost/backcountry",
+  "apiKey": "REMPLACE-MOI-PAR-TA-CLE-API",
+
+  "captureDir": "",
+  "_captureDir_comment": "Dossier où ranger les captures d'écran. Vide = sous-dossier 'Backcountry Pathfinders' dans Mes documents.",
+
+  "dedupRadiusM": 150,
+  "_dedupRadiusM_comment": "Rayon (m) de tolérance pour considérer scan ↔ poser comme le même lieu. La dédup côté lieu existant est faite par le serveur.",
+
+  "lowPassMaxAglFt": 500,
+  "_lowPassMaxAglFt_comment": "Hauteur-sol max (ft) pour considérer un passage bas de reconnaissance (scan relief optionnel)."
+}

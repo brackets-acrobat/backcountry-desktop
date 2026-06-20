@@ -1,0 +1,241 @@
+/*
+ * Backcountry Pathfinders — Desktop
+ * Charte graphique reprise À L'IDENTIQUE du site web (public/assets/css/style.css) :
+ * style « cockpit » NavXpress, accent VERT #3af24b, fond sombre #121212 en couches,
+ * texte clair, données chiffrées en monospace (effet instrument).
+ */
+
+:root {
+  --bg:           #121212;   /* fond de page (base) */
+  --panel:        #1a1a1a;   /* panneaux / cartes */
+  --panel-2:      #1f1f1f;   /* champs, reliefs */
+  --accent:       #3af24b;   /* accent vert */
+  --accent-hover: #57d53b;   /* survol / actif */
+  --ink:          #e0e0e0;   /* texte principal */
+  --title:        #ffffff;   /* titres */
+  --muted:        #888888;   /* texte secondaire */
+  --line:         #2a2a2a;   /* séparateurs discrets */
+  --danger:       #ff5252;   /* erreurs / alertes */
+  --warn:         #ff9f1c;   /* orange — alerte moyenne */
+  --mono:         'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+}
+
+h1, h2, h3 { color: var(--title); }
+
+/* ---- Icônes Phosphor (vertes par défaut, alignées au texte) — comme le site ---- */
+i[class^="ph-"], i[class*=" ph-"] {
+  color: var(--accent);
+  vertical-align: middle;
+  line-height: 1;
+}
+.panel h2 i { margin-right: 4px; }
+.cell label i { font-size: 1.05em; margin-right: 3px; }
+/* Dans un bouton, l'icône suit la couleur du texte (sombre au survol du fond vert) */
+.btn i[class^="ph-"] { color: inherit; }
+
+/* Scrollbars sombres à pouce vert (façon NavXpress) */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: #141414; border-left: 1px solid var(--line); }
+*::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* --- Bandeau supérieur (= .site-header du web) --- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  flex-wrap: wrap;
+  padding: .75rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--accent);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { font-size: 26px; color: var(--accent); line-height: 1; }
+.brand h1 { margin: 0; font-size: 1.1rem; color: var(--accent); font-weight: 700; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+
+.conn { display: flex; align-items: center; gap: 10px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-off  { background: #555; }
+.dot-wait { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.dot-on   { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+#status-text { color: var(--muted); min-width: 130px; }
+
+/* --- Toggle bilingue FR | EN (pilule, façon NavXpress, accent vert) --- */
+.btn-lang {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .5px;
+  user-select: none;
+  transition: border-color .2s, background-color .2s;
+}
+.btn-lang:hover { border-color: var(--accent); background-color: #262626; }
+.lang-separator { color: #444; }
+.lang-active { color: var(--accent); }
+
+/* --- Boutons (= .btn du web : contour vert, survol plein vert texte sombre) --- */
+.btn {
+  display: inline-block;
+  padding: .5rem 1.1rem;
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.btn:hover,
+.btn:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent-hover);
+  color: #0c1a0c;          /* texte sombre lisible sur le vert vif */
+  outline: none;
+}
+.btn-accent { color: var(--accent); }
+
+/* --- Contenu --- */
+main { padding: 20px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+  max-width: 920px;
+}
+.panel h2 { margin: 0 0 4px; font-size: 1.2rem; }
+.hint { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.cell {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cell label {
+  display: block;
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.val {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.unit { color: var(--muted); font-size: 11px; }
+
+.note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+.note strong { color: var(--title); }
+.note em { color: var(--ink); font-style: italic; }
+
+/* --- Bandeau « enregistrement en cours » --- */
+.rec-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 920px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  background: rgba(173, 79, 9, .12);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.rec-banner i[class^="ph-"] { color: var(--warn); animation: rec-blink 1s steps(2, start) infinite; }
+@keyframes rec-blink { to { opacity: .25; } }
+
+/* --- Modales (overlay + boîte) --- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.overlay[hidden] { display: none; }
+.modal {
+  width: min(520px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .6);
+}
+.modal h3 { margin: 0 0 14px; font-size: 1.15rem; color: var(--title); }
+.modal-text { color: var(--ink); line-height: 1.55; margin: 0 0 18px; }
+
+.modal-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: .35rem 1rem;
+  margin: 0 0 16px;
+}
+.modal-fields dt { color: var(--muted); font-size: .9rem; }
+.modal-fields dd { margin: 0; font-family: var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.modal-status {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: .9rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.modal-status.is-ok    { border-color: var(--accent); color: #bdf3b3; }
+.modal-status.is-error { border-color: var(--danger); color: #ffb3b3; }
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* Bouton danger (effacement) */
+.btn-danger { color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover, .btn-danger:focus-visible {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
