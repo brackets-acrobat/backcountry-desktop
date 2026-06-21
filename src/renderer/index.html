@@ -22,6 +22,7 @@
       <span id="status-dot" class="dot dot-off"></span>
       <span id="status-text">Déconnecté</span>
       <button id="btn-connect" class="btn btn-accent"><i class="ph-light ph-plugs"></i> Connecter SimConnect</button>
+      <span id="queue-badge" class="queue-badge" hidden></span>
       <!-- Bouton toggle bilingue FR / EN (en haut à droite, comme NavXpressVFR) -->
       <button id="btn-lang-toggle" class="btn-lang" data-i18n-title="toggleTitle" title="Changer de langue / Switch language">
         <span class="lang-fr lang-active">FR</span>
@@ -32,11 +33,6 @@
   </header>
 
   <main>
-    <!-- Bandeau « enregistrement du poser en cours » (caché par défaut) -->
-    <div id="rec-banner" class="rec-banner" hidden>
-      <i class="ph-light ph-record"></i> <span id="rec-banner-text"></span>
-    </div>
-
     <section class="panel">
       <h2><i class="ph-light ph-broadcast"></i> <span data-i18n="scanLive">Scan live</span></h2>
       <p class="hint" id="api-hint">…</p>
@@ -60,27 +56,47 @@
     </section>
   </main>
 
-  <!-- Modale : enregistrer ce poser ? -->
-  <div id="save-overlay" class="overlay" hidden>
+  <!-- Bouton flottant « Capture d'écran » (actif seulement posé+arrêté+frein) -->
+  <button id="btn-capture" class="btn btn-accent btn-capture" disabled>
+    <i class="ph-light ph-camera"></i> <span data-i18n="btnCapture">Capture d'écran</span>
+  </button>
+
+  <!-- Modale : capture d'écran (cadrage manuel dans MSFS) -->
+  <div id="capture-overlay" class="overlay" hidden>
     <div class="modal">
-      <h3><i class="ph-light ph-airplane-landing"></i> <span data-i18n="modalSaveTitle">Enregistrer ce poser ?</span></h3>
-      <dl id="save-fields" class="modal-fields"></dl>
-      <p id="save-status" class="modal-status" hidden></p>
+      <h3><i class="ph-light ph-camera"></i> <span data-i18n="captureTitle">Capture d'écran du spot</span></h3>
+      <p class="modal-text" data-i18n="captureWarn">Cadrez l'image que vous souhaitez capturer dans MSFS 2024. Une fois prêt, cliquez sur Capture.</p>
+      <div class="capture-preview"><img id="capture-thumb" alt=""></div>
+      <p id="capture-status" class="modal-status" hidden></p>
       <div class="modal-actions">
-        <button id="btn-save-no" class="btn"><i class="ph-light ph-trash"></i> <span data-i18n="btnSaveNo">Ne pas enregistrer</span></button>
-        <button id="btn-save-yes" class="btn btn-accent"><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="btnSaveYes">Enregistrer</span></button>
+        <button id="btn-capture-cancel" class="btn"><span data-i18n="btnClose">Fermer</span></button>
+        <button id="btn-capture-do" class="btn btn-accent"><i class="ph-light ph-camera"></i> <span data-i18n="btnCaptureDo">Capture</span></button>
       </div>
     </div>
   </div>
 
-  <!-- Modale : confirmation d'effacement -->
-  <div id="confirm-overlay" class="overlay" hidden>
+  <!-- Modale : envoi groupé en fin de vol -->
+  <div id="send-overlay" class="overlay" hidden>
     <div class="modal">
-      <h3><i class="ph-light ph-warning"></i> <span data-i18n="modalConfirmTitle">Effacer ce poser ?</span></h3>
-      <p class="modal-text" data-i18n="modalConfirmText">…</p>
+      <h3><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="sendTitle">Envoyer les posers du vol ?</span></h3>
+      <p class="modal-text" data-i18n="sendIntro">Vol terminé. Voici les posers relevés pendant ce vol :</p>
+      <ul id="send-list" class="send-list"></ul>
+      <p id="send-status" class="modal-status" hidden></p>
       <div class="modal-actions">
-        <button id="btn-confirm-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
-        <button id="btn-confirm-discard" class="btn btn-danger"><i class="ph-light ph-trash"></i> <span data-i18n="btnConfirmDiscard">Effacer</span></button>
+        <button id="btn-send-no" class="btn"><span data-i18n="btnDontSend">Ne pas envoyer</span></button>
+        <button id="btn-send-yes" class="btn btn-accent"><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="btnSend">Envoyer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation « ne pas envoyer » -->
+  <div id="discard-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-warning"></i> <span data-i18n="discardTitle">Ne pas envoyer ?</span></h3>
+      <p class="modal-text" data-i18n="discardText">Les posers de ce vol ne seront pas envoyés au site. Les photos restent enregistrées en local.</p>
+      <div class="modal-actions">
+        <button id="btn-discard-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-discard-ok" class="btn btn-danger"><span data-i18n="btnConfirmDiscard">Confirmer</span></button>
       </div>
     </div>
   </div>

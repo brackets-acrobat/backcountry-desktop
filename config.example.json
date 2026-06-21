@@ -7,6 +7,9 @@
   "captureDir": "",
   "_captureDir_comment": "Dossier où ranger les captures d'écran. Vide = sous-dossier 'Backcountry Pathfinders' dans Mes documents.",
 
+  "captureMonitor": 0,
+  "_captureMonitor_comment": "Index de l'écran à capturer (0 = écran principal). Mets l'index du moniteur où tourne MSFS si tu as plusieurs écrans.",
+
   "dedupRadiusM": 150,
   "_dedupRadiusM_comment": "Rayon (m) de tolérance pour considérer scan ↔ poser comme le même lieu. La dédup côté lieu existant est faite par le serveur.",
 

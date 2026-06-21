@@ -38,7 +38,7 @@ function renderStatus() {
     btn.innerHTML = '<i class="ph-light ph-plugs"></i> ' + t('btnConnect');
     connecte = false;
     viderScan();
-    $('rec-banner').hidden = true;   // plus de flux → on masque l'enregistrement
+    setCaptureEnabled(false);   // plus de flux → bouton capture désactivé
   }
 }
 
@@ -96,6 +96,7 @@ $('btn-lang-toggle').addEventListener('click', () => {
   setLanguage(currentLang === 'fr' ? 'en' : 'fr');
   renderStatus();
   renderApiHint();
+  setQueueBadge(lastQueueCount);
 });
 
 window.bc.onStatus((s) => {
@@ -104,107 +105,131 @@ window.bc.onStatus((s) => {
 window.bc.onScan((f) => majScan(f));
 
 // ============================================================
-// Jalon 2 — relevé du poser : bandeau d'enregistrement + modales.
+// Jalon 4 — capture manuelle (bouton gated) + envoi groupé en fin de vol.
 // ============================================================
 const FT_PER_M = 3.280839895;
-let currentReleve = null;   // payload assemblé par la FSM, en attente de décision
-let currentUid = null;
+let captureUid = null;       // uid du poser courant (cible du bouton capture)
+let flightLandings = [];     // posers du vol (reçus à la fin)
 
-function showRecBanner(samples, distM) {
-  $('rec-banner-text').textContent = t('recBanner')
-    .replace('{n}', samples ?? 0)
-    .replace('{d}', distM ?? 0);
-  $('rec-banner').hidden = false;
+function setCaptureEnabled(on) {
+  $('btn-capture').disabled = !on;
 }
 
-// Construit la liste des champs du relevé dans la modale (libellés traduits).
-function renderSaveFields(uid, r) {
-  const ft = (m) => (m == null ? '—' : Math.round(m * FT_PER_M) + ' ft');
-  const rows = [
-    [t('fldId'), uid.slice(0, 8)],
-    [t('fldDate'), r.date_releve || '—'],
-    [t('lblLat'), r.latitude],
-    [t('lblLon'), r.longitude],
-    [t('fldAvgAlt'), ft(r.altitude_m)],
-    [t('fldType'), r.type_surface || '—'],
-    [t('fldCond'), r.etat_surface || '—'],
-    [t('fldHeading'), r.cap_moyen_deg == null ? '—' : r.cap_moyen_deg + ' °'],
-    [t('fldElev'), ft(r.denivele_m)],
-    [t('fldSlope'), (r.pente_max_pct ?? 0) + ' %'],
-    [t('fldSamples'), (r.profil_relief || []).length],
-  ];
-  $('save-fields').innerHTML = rows
-    .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
-    .join('');
-}
-
-function openSaveModal() {
-  const st = $('save-status');
-  st.hidden = true;
-  st.className = 'modal-status';
-  $('btn-save-yes').disabled = false;
-  $('btn-save-no').disabled = false;
-  $('confirm-overlay').hidden = true;
-  $('save-overlay').hidden = false;
-}
-
-function closeAllModals() {
-  $('save-overlay').hidden = true;
-  $('confirm-overlay').hidden = true;
-  currentReleve = null;
-  currentUid = null;
-}
-
-// --- Événements FSM (main → renderer) ---
-window.bc.onTouchdown(() => showRecBanner(0, 0));
-window.bc.onProgress((p) => showRecBanner(p.samples, p.distM));
-window.bc.onAwaitingDecision(({ uid, releve }) => {
-  currentReleve = releve;
-  currentUid = uid;
-  $('rec-banner').hidden = true;
-  renderSaveFields(uid, releve);
-  openSaveModal();
+// --- Bouton flottant « Capture d'écran » ---
+$('btn-capture').addEventListener('click', () => {
+  if ($('btn-capture').disabled) return;
+  const st = $('capture-status');
+  st.hidden = true; st.className = 'modal-status';
+  $('capture-thumb').removeAttribute('src');
+  $('btn-capture-do').disabled = false;
+  $('capture-overlay').hidden = false;
 });
 
-// --- Boutons de la modale ---
-$('btn-save-yes').addEventListener('click', async () => {
-  if (!currentReleve) return;
-  const st = $('save-status');
-  $('btn-save-yes').disabled = true;
-  $('btn-save-no').disabled = true;
-  st.className = 'modal-status';
-  st.textContent = t('sending');
-  st.hidden = false;
+$('btn-capture-cancel').addEventListener('click', () => { $('capture-overlay').hidden = true; });
 
-  const res = await window.bc.envoyerReleve(currentReleve);
+$('btn-capture-do').addEventListener('click', async () => {
+  if (!captureUid) return;
+  const st = $('capture-status');
+  $('btn-capture-do').disabled = true;
+  const res = await window.bc.captureNow(captureUid);
   if (res.ok) {
-    const idLieu = res.body && res.body.id_lieu;
-    const nouveau = res.body && res.body.nouveau_lieu ? t('sendNewPlace') : '';
-    st.className = 'modal-status is-ok';
-    st.textContent = t('sendOk').replace('{id}', idLieu ?? '?').replace('{new}', nouveau);
-    setTimeout(closeAllModals, 2200);   // la FSM est déjà reset côté main
+    $('capture-thumb').src = res.thumbDataUrl;
+    st.className = 'modal-status is-ok'; st.textContent = t('captureSaved'); st.hidden = false;
+    const l = flightLandings.find((x) => x.uid === captureUid);
+    if (l) l.hasCapture = true;
+    if (!$('send-overlay').hidden) { renderSendList(); majSendModal(); }   // si modale d'envoi ouverte
+    $('btn-capture-do').disabled = false;   // on autorise un re-cadrage
   } else {
-    const err = (res.body && (res.body.erreur || res.body.brut)) || ('HTTP ' + res.status);
     st.className = 'modal-status is-error';
-    st.textContent = t('sendErr').replace('{err}', err);
-    $('btn-save-yes').disabled = false;
-    $('btn-save-no').disabled = false;
+    st.textContent = t('captureErr').replace('{err}', res.error || '?');
+    st.hidden = false;
+    $('btn-capture-do').disabled = false;
   }
 });
 
-// « Ne pas enregistrer » → demande de confirmation
-$('btn-save-no').addEventListener('click', () => {
-  $('save-overlay').hidden = true;
-  $('confirm-overlay').hidden = false;
+// --- Événements FSM (main → renderer) ---
+window.bc.onCaptureState(({ canCapture, uid }) => {
+  if (uid) captureUid = uid;
+  setCaptureEnabled(!!canCapture);
 });
-$('btn-confirm-cancel').addEventListener('click', () => {
-  $('confirm-overlay').hidden = true;
-  $('save-overlay').hidden = false;
+window.bc.onLandingRecorded(() => { /* listé en fin de vol */ });
+window.bc.onFlightEnded(({ landings }) => {
+  flightLandings = (landings || []).map((l) => ({ ...l }));
+  renderSendList();
+  majSendModal();
+  $('btn-send-no').disabled = false;
+  $('discard-overlay').hidden = true;
+  $('send-overlay').hidden = false;
 });
-$('btn-confirm-discard').addEventListener('click', async () => {
-  await window.bc.effacerReleve();
-  closeAllModals();
+
+// Liste des posers dans la modale d'envoi (sans photo = non valide, non envoyé).
+function renderSendList() {
+  const list = $('send-list');
+  list.innerHTML = flightLandings.map((l) => {
+    const r = l.releve;
+    const photo = l.hasCapture
+      ? `<span class="sl-photo has">${t('listPhotoYes')}</span>`
+      : `<span class="sl-photo invalid">${t('listNoSend')}</span>`;
+    const cls = l.hasCapture ? '' : ' class="sl-invalid"';
+    return `<li${cls}><span class="sl-coords">${r.latitude}, ${r.longitude}</span>`
+      + `<span class="sl-surface">${r.type_surface || '—'}</span>${photo}</li>`;
+  }).join('');
+}
+
+// Active/désactive l'envoi : seuls les posers AVEC photo sont valides.
+function majSendModal() {
+  const anyValid = flightLandings.some((l) => l.hasCapture);
+  const st = $('send-status');
+  st.className = 'modal-status';
+  if (anyValid) { st.hidden = true; } else { st.textContent = t('sendNothing'); st.hidden = false; }
+  $('btn-send-yes').disabled = !anyValid;
+}
+
+function closeSendModals() {
+  $('send-overlay').hidden = true;
+  $('discard-overlay').hidden = true;
+  flightLandings = [];
+}
+
+// --- Boutons de la modale d'envoi ---
+$('btn-send-yes').addEventListener('click', async () => {
+  const st = $('send-status');
+  $('btn-send-yes').disabled = true; $('btn-send-no').disabled = true;
+  st.className = 'modal-status'; st.textContent = t('sending'); st.hidden = false;
+  const res = await window.bc.envoyerTout(flightLandings);
+  st.className = 'modal-status ' + (res.ok ? 'is-ok' : 'is-error');
+  st.textContent = t('sendResult')
+    .replace('{n}', res.envoyes ?? 0)
+    .replace('{q}', res.enfiles ?? 0)
+    .replace('{e}', res.echecs ?? 0);
+  setTimeout(closeSendModals, 2800);
 });
+
+// « Ne pas envoyer » → confirmation.
+$('btn-send-no').addEventListener('click', () => {
+  $('send-overlay').hidden = true; $('discard-overlay').hidden = false;
+});
+$('btn-discard-cancel').addEventListener('click', () => {
+  $('discard-overlay').hidden = true; $('send-overlay').hidden = false;
+});
+$('btn-discard-ok').addEventListener('click', async () => {
+  await window.bc.flightDiscard();
+  closeSendModals();
+});
+
+// --- File d'envoi hors-ligne : badge « en attente » ---
+let lastQueueCount = 0;
+function setQueueBadge(n) {
+  lastQueueCount = n || 0;
+  const b = $('queue-badge');
+  if (lastQueueCount > 0) {
+    b.textContent = t('queuePending').replace('{n}', lastQueueCount);
+    b.hidden = false;
+  } else {
+    b.hidden = true;
+  }
+}
+window.bc.onQueueStatus((p) => setQueueBadge(p.restants));
 
 // Initialisation : applique la langue courante, puis l'état initial.
 initI18n();
@@ -213,3 +238,4 @@ window.bc.getConfig().then((cfg) => {
   lastConfig = cfg;
   renderApiHint();
 });
+window.bc.etatFile().then((p) => setQueueBadge(p.restants));

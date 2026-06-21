@@ -6,10 +6,10 @@
 // ============================================================
 // main.js — process principal Electron.
 //
-// Rôle : créer la fenêtre, instancier le client SimConnect, relayer ses
-// événements ('status' / 'scan') au renderer, et exposer les handlers IPC
-// (connexion, déconnexion, envoi de relevé). La logique métier vit dans les
-// modules dédiés (simconnect / fsm / scan / math-engine / capture / api-client).
+// Rôle : fenêtre, client SimConnect, FSM du poser, capture d'écran, envoi.
+// Flux « envoi groupé » : la FSM accumule les posers du vol ; le renderer
+// déclenche les captures manuelles (bouton gated) ; à la fin du vol, une
+// modale envoie tout (relevés + photos en multipart) — avec file hors-ligne.
 // ============================================================
 
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -18,7 +18,9 @@ const path = require('path');
 const { chargerConfig } = require('./config');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
-const { envoyerReleve } = require('./api-client');
+const { envoyer } = require('./api-client');
+const { capturerVersFichier } = require('./capture');
+const { enfiler, compter, flush } = require('./queue');
 
 let mainWindow = null;
 let config = chargerConfig();
@@ -30,11 +32,38 @@ function broadcast(channel, payload) {
   });
 }
 
-// FSM du poser : émet ses événements vers le renderer (préfixe fsm-).
+// Dossiers de travail, sous Mes documents par défaut.
+function dossiers() {
+  const base = (config.captureDir && config.captureDir.trim())
+    ? config.captureDir
+    : path.join(app.getPath('documents'), 'Backcountry Pathfinders');
+  return {
+    screenshots: path.join(base, 'screenshots'),
+    queue: path.join(base, 'queue'),
+  };
+}
+
+const cheminCapture = (uid) => path.join(dossiers().screenshots, `${uid}.jpg`);
+
+function broadcastQueue() {
+  broadcast('queue-status', { restants: compter(dossiers().queue) });
+}
+
+// Rejoue la file hors-ligne (démarrage, périodique, après reconnexion).
+async function flushQueue() {
+  if (!config._cleConfiguree) return;
+  await flush(dossiers().queue, (r) => envoyer(config, r, r._capturePath || null));
+  broadcastQueue();
+}
+
+// FSM du poser : relaie ses événements au renderer (préfixe fsm-).
 const fsm = createFsm({ emit: (event, payload) => broadcast('fsm-' + event, payload) });
 
-// Relais des événements SimConnect.
-sim.on('status', (s) => broadcast('sc-status', s));
+// Relais SimConnect.
+sim.on('status', (s) => {
+  broadcast('sc-status', s);
+  if (s.state === 'connected') flushQueue();
+});
 sim.on('scan', (frame) => broadcast('sc-scan', frame));   // UI (throttlé ~1 Hz)
 sim.on('frame', (frame) => fsm.feed(frame));               // FSM (chaque image)
 
@@ -53,17 +82,14 @@ function createWindow() {
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
-  // removeMenu() supprime les accélérateurs par défaut (Ctrl+R, F12…). On les
-  // rebranche manuellement sur le renderer pour garder rechargement + DevTools.
+  // removeMenu() supprime Ctrl+R / F12 → on les rebranche manuellement.
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const key = (input.key || '').toLowerCase();
-    // Ctrl+R ou F5 → recharge le renderer
     if ((input.control && key === 'r') || key === 'f5') {
       mainWindow.webContents.reload();
       event.preventDefault();
     }
-    // Ctrl+Shift+I ou F12 → outils de développement
     if ((input.control && input.shift && key === 'i') || key === 'f12') {
       mainWindow.webContents.toggleDevTools();
       event.preventDefault();
@@ -81,19 +107,54 @@ ipcMain.handle('app-config', async () => ({
 ipcMain.handle('sc-connect', async () => sim.connecter());
 ipcMain.handle('sc-disconnect', async () => { await sim.deconnecter(); return { ok: true }; });
 
-ipcMain.handle('releve-envoyer', async (_e, releve) => {
-  if (!config._cleConfiguree) {
-    return { ok: false, status: 0, body: { erreur: 'Clé API non configurée (config.json).' } };
+// Capture manuelle du spot (clic sur « Capture » dans la modale).
+ipcMain.handle('capture-now', async (_e, uid) => {
+  if (!uid) return { ok: false, error: 'uid manquant' };
+  try {
+    const cap = await capturerVersFichier(uid, dossiers().screenshots, config.captureMonitor || 0);
+    fsm.markCaptured(uid);
+    return { ok: true, thumbDataUrl: cap.thumbDataUrl, via: cap.via, filename: cap.filename };
+  } catch (e) {
+    return { ok: false, error: e && e.message };
   }
-  const res = await envoyerReleve(config, releve);
-  if (res.ok) fsm.reset();   // poser enregistré → on repart à zéro pour le suivant
-  return res;
 });
 
-// « Ne pas enregistrer » confirmé → on efface la session sans rien envoyer.
-ipcMain.handle('releve-discard', async () => { fsm.reset(); return { ok: true }; });
+// Envoi groupé de tous les posers du vol (fin de vol).
+ipcMain.handle('envoyer-tout', async (_e, landings) => {
+  if (!config._cleConfiguree) {
+    return { ok: false, erreur: 'Clé API non configurée (config.json).' };
+  }
+  // Règle : un poser SANS photo n'est pas valide → on ne l'envoie pas.
+  const valides = (landings || []).filter((l) => l.hasCapture);
+  let envoyes = 0; let enfiles = 0; let echecs = 0;
+  for (const l of valides) {
+    const imagePath = cheminCapture(l.uid);
+    const payload = { ...l.releve, _uid: l.uid, _capturePath: imagePath };
+    const res = await envoyer(config, payload, imagePath);
+    if (res.ok) {
+      envoyes++;
+    } else if (!res.status || res.status === 0) {
+      enfiler(dossiers().queue, payload);   // hors-ligne → file
+      enfiles++;
+    } else {
+      echecs++;                              // refus serveur (4xx/5xx)
+    }
+  }
+  fsm.reset();
+  broadcastQueue();
+  return { ok: echecs === 0, envoyes, enfiles, echecs };
+});
 
-app.whenReady().then(createWindow);
+// « Ne pas envoyer » confirmé → on oublie les posers du vol (les photos locales restent).
+ipcMain.handle('flight-discard', async () => { fsm.reset(); return { ok: true }; });
+
+ipcMain.handle('queue-status', async () => ({ restants: compter(dossiers().queue) }));
+
+app.whenReady().then(() => {
+  createWindow();
+  flushQueue();
+  setInterval(flushQueue, 60000);
+});
 
 app.on('window-all-closed', () => {
   sim.deconnecter().finally(() => {

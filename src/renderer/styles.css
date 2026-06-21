@@ -232,6 +232,40 @@ main { padding: 20px; }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* Aperçu de la capture d'écran dans la modale */
+.capture-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.capture-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.capture-preview img:not([src]) { display: none; }
+.btn-small { padding: .3rem .7rem; font-size: .82rem; }
+
+/* Badge « en attente d'envoi » (file hors-ligne) */
+.queue-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 159, 28, .15);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
 /* Bouton danger (effacement) */
 .btn-danger { color: var(--danger); border-color: var(--danger); }
 .btn-danger:hover, .btn-danger:focus-visible {
@@ -239,3 +273,39 @@ main { padding: 20px; }
   border-color: var(--danger);
   color: #fff;
 }
+
+/* Boutons désactivés */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:disabled:hover { background: transparent; color: var(--accent); border-color: var(--accent); }
+.btn-accent:disabled:hover { background: var(--accent); color: #fff; }
+
+/* Bouton flottant « Capture d'écran » (bas à droite) */
+.btn-capture {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 900;
+  padding: .7rem 1.2rem;
+  font-size: .95rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+}
+
+/* Liste des posers dans la modale d'envoi */
+.send-list { list-style: none; margin: 0 0 16px; padding: 0; }
+.send-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: .5rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: .9rem;
+}
+.send-list .sl-coords { font-family: var(--mono); color: var(--accent); }
+.send-list .sl-surface { color: var(--ink); }
+.send-list .sl-photo { margin-left: auto; color: var(--muted); font-size: .82rem; }
+.send-list .sl-photo.has { color: var(--accent); }
+.send-list .sl-photo.invalid { color: var(--danger); }
+.send-list li.sl-invalid { opacity: .6; border-style: dashed; }
+.send-list li.sl-invalid .sl-coords { color: var(--muted); }

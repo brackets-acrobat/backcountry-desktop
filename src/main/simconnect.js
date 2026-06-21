@@ -114,10 +114,13 @@ class SimConnectClient extends EventEmitter {
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'PLANE HEADING DEGREES TRUE', 'degrees', SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'SIM ON GROUND',             'Bool',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'BRAKE PARKING POSITION',    'Bool',    SCDataType.INT32);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GENERAL ENG COMBUSTION:1',  'Bool',    SCDataType.INT32);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GENERAL ENG COMBUSTION:2',  'Bool',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'LOCAL TIME',                'seconds', SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'LOCAL YEAR',               'number',  SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'LOCAL MONTH OF YEAR',      'number',  SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'LOCAL DAY OF MONTH',       'number',  SCDataType.FLOAT64);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'TITLE',                    null,      SCDataType.STRING256); // aéronef (constant)
 
     handle.requestDataOnSimObject(
       SC_SCAN_REQ_ID, SC_SCAN_DEF_ID, SCConst.OBJECT_ID_USER,
@@ -141,16 +144,21 @@ class SimConnectClient extends EventEmitter {
         const headingTrue  = data.data.readFloat64();
         const onGround     = data.data.readInt32() !== 0;
         const parkingBrake = data.data.readInt32() !== 0;
+        const eng1         = data.data.readInt32() !== 0;
+        const eng2         = data.data.readInt32() !== 0;
         const localTime    = data.data.readFloat64();
         const localYear    = data.data.readFloat64();
         const localMonth   = data.data.readFloat64();
         const localDay     = data.data.readFloat64();
+        const aircraftTitle = data.data.readString256();
 
         const frame = {
           lat, lon, amslFt, aglFt, groundAltFt,
           surfaceType, surfaceTypeLabel: libelleSurface(surfaceType),
           surfaceCond, surfaceCondLabel: libelleCondition(surfaceCond),
           groundSpeedKt, headingTrue, onGround, parkingBrake,
+          engineOn: eng1 || eng2,
+          aircraftTitle,
           simLocal: buildSimLocal(localYear, localMonth, localDay, localTime),
           t: Date.now(),
         };

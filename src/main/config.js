@@ -19,8 +19,9 @@ const ROOT = path.join(__dirname, '..', '..');
 
 const DEFAULTS = {
   apiBaseUrl: 'http://localhost/backcountry',
-  apiKey: '49bd47cfb4218bfba64e27f9c29ab03db0ff4d5059528a33',
+  apiKey: '',
   captureDir: '',
+  captureMonitor: 0,
   dedupRadiusM: 150,
   lowPassMaxAglFt: 500,
 };

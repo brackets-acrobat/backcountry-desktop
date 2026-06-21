@@ -4,48 +4,70 @@
  */
 
 // ============================================================
-// api-client.js — envoi des relevés vers le site web communautaire.
+// api-client.js — envoi des relevés vers le site (POST /api/releve).
 //
-// Endpoint : POST {apiBaseUrl}/api/releve
-// Auth     : header X-Api-Key (le serveur accepte aussi Authorization: Bearer).
-// Corps    : JSON. lat/lon obligatoires. Champs acceptés par le serveur :
-//   date_releve, altitude_m, type_surface, etat_surface, friction,
-//   longueur_utile_m, pente_max_pct, denivele_m, profil_relief[],
-//   aeronef, capture, commentaire
-// Réponse 201 → { ok, id_releve, id_lieu, nouveau_lieu }
-// La déduplication du lieu est gérée CÔTÉ SERVEUR.
+// Format multipart/form-data : tous les champs du relevé en form-fields
+// (profil_relief sérialisé en JSON), + un champ `uid` (id du poser, sert à
+// nommer la photo côté serveur) + un fichier `capture` optionnel (la photo).
+// Auth : header X-Api-Key. Réponse 201 → { ok, id_releve, id_lieu,
+// nouveau_lieu, capture }.
 //
-// Pas de dépendance externe : on utilise http/https natifs de Node.
+// Pas de dépendance externe : corps multipart construit à la main.
+// Convention de retour : status 0 = échec RÉSEAU (à mettre en file).
 // ============================================================
 
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 
-// Envoie un relevé. cfg = config effective (apiBaseUrl, apiKey).
-// releve = objet JSON (au minimum { latitude, longitude }).
-// Retour : { ok, status, body } — body est l'objet JSON renvoyé par le serveur.
-function envoyerReleve(cfg, releve) {
+// Envoie un relevé (+ image éventuelle). imagePath = chemin local du JPEG ou null.
+function envoyer(cfg, releve, imagePath = null) {
   return new Promise((resolve) => {
     let url;
     try {
-      // Concaténation directe : un chemin commençant par « / » dans new URL(path, base)
-      // serait résolu à la RACINE du domaine et perdrait le préfixe (/backcountry).
       url = new URL(cfg.apiBaseUrl.replace(/\/+$/, '') + '/api/releve');
     } catch (e) {
       return resolve({ ok: false, status: 0, body: { erreur: 'apiBaseUrl invalide: ' + e.message } });
     }
 
-    const payload = Buffer.from(JSON.stringify(releve), 'utf-8');
-    const lib = url.protocol === 'https:' ? https : http;
+    const boundary = '----bcp' + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    const parts = [];
+    const field = (name, value) => {
+      parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`, 'utf-8'
+      ));
+    };
 
+    for (const [k, v] of Object.entries(releve)) {
+      if (k.startsWith('_')) continue;            // champs internes (_uid, _capturePath…)
+      if (v === null || v === undefined) continue;
+      const val = (k === 'profil_relief' && typeof v !== 'string') ? JSON.stringify(v) : String(v);
+      field(k, val);
+    }
+    if (releve._uid) field('uid', releve._uid);
+
+    if (imagePath && fs.existsSync(imagePath)) {
+      const img = fs.readFileSync(imagePath);
+      parts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="capture"; filename="${path.basename(imagePath)}"\r\n` +
+        'Content-Type: image/jpeg\r\n\r\n', 'utf-8'
+      ));
+      parts.push(img);
+      parts.push(Buffer.from('\r\n', 'utf-8'));
+    }
+    parts.push(Buffer.from(`--${boundary}--\r\n`, 'utf-8'));
+    const body = Buffer.concat(parts);
+
+    const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request(
       url,
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Content-Length': payload.length,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': body.length,
           'X-Api-Key': cfg.apiKey || '',
           'User-Agent': 'BackcountryPathfinders-Desktop',
         },
@@ -55,17 +77,16 @@ function envoyerReleve(cfg, releve) {
         res.setEncoding('utf-8');
         res.on('data', (c) => { data += c; });
         res.on('end', () => {
-          let body;
-          try { body = JSON.parse(data); } catch (_) { body = { brut: data }; }
-          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body });
+          let parsed;
+          try { parsed = JSON.parse(data); } catch (_) { parsed = { brut: data }; }
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: parsed });
         });
       }
     );
-
     req.on('error', (err) => resolve({ ok: false, status: 0, body: { erreur: err.message } }));
-    req.write(payload);
+    req.write(body);
     req.end();
   });
 }
 
-module.exports = { envoyerReleve };
+module.exports = { envoyer };
