@@ -28,6 +28,11 @@ body {
   color: var(--ink);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-size: 14px;
+  /* Plein écran en colonnes : header · subbar · carte (extensible) · statusbar */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 h1, h2, h3 { color: var(--title); }
@@ -38,8 +43,6 @@ i[class^="ph-"], i[class*=" ph-"] {
   vertical-align: middle;
   line-height: 1;
 }
-.panel h2 i { margin-right: 4px; }
-.cell label i { font-size: 1.05em; margin-right: 3px; }
 /* Dans un bouton, l'icône suit la couleur du texte (sombre au survol du fond vert) */
 .btn i[class^="ph-"] { color: inherit; }
 
@@ -61,16 +64,18 @@ i[class^="ph-"], i[class*=" ph-"] {
   border-bottom: 1px solid var(--accent);
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { font-size: 26px; color: var(--accent); line-height: 1; }
-.brand h1 { margin: 0; font-size: 1.1rem; color: var(--accent); font-weight: 700; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.brand-logo { display: block; }   /* taille d'origine : c'est le logo qui fixe la hauteur du bandeau */
 
 .conn { display: flex; align-items: center; gap: 10px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.dot-off  { background: #555; }
-.dot-wait { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
-.dot-on   { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-#status-text { color: var(--muted); min-width: 130px; }
+
+/* États de connexion portés par le bouton MSFS (remplace pastille + texte) :
+   déconnecté = rouge · connexion = orange · connecté = vert. */
+.btn-state-off  { color: var(--danger); border-color: var(--danger); }
+.btn-state-off:hover,  .btn-state-off:focus-visible  { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-state-wait { color: var(--warn); border-color: var(--warn); }
+.btn-state-wait:hover, .btn-state-wait:focus-visible { background: var(--warn); border-color: var(--warn); color: #1a1205; }
+.btn-state-on   { color: var(--accent); border-color: var(--accent); }
+.btn-state-on:hover,   .btn-state-on:focus-visible   { background: var(--accent); border-color: var(--accent-hover); color: #0c1a0c; }
 
 /* --- Toggle bilingue FR | EN (pilule, façon NavXpress, accent vert) --- */
 .btn-lang {
@@ -114,58 +119,53 @@ i[class^="ph-"], i[class*=" ph-"] {
 }
 .btn-accent { color: var(--accent); }
 
-/* --- Contenu --- */
-main { padding: 20px; }
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 18px 20px;
-  max-width: 920px;
-}
-.panel h2 { margin: 0 0 4px; font-size: 1.2rem; }
-.hint { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-}
-.cell {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
+/* --- Second bandeau : données live (lat / lon / altitude AMSL) --- */
+.subbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 28px;
+  padding: 8px 1.25rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.subbar-item {
+  display: inline-flex;
   align-items: baseline;
   gap: 6px;
-}
-.cell label {
-  display: block;
-  flex: 1;
   color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .4px;
 }
-.val {
+.subbar-item i[class^="ph-"] { font-size: 1.05em; }
+.subval {
   font-family: var(--mono);
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
+  font-size: 15px;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
 }
-.unit { color: var(--muted); font-size: 11px; }
 
-.note {
-  margin: 16px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-  border-left: 3px solid var(--accent);
-  padding-left: 12px;
+/* --- Contenu : la carte occupe tout l'espace restant --- */
+main { flex: 1; min-height: 0; padding: 0; }
+#map { width: 100%; height: 100%; background: #0d0d0d; }
+/* Pavé d'attribution Leaflet adapté au thème sombre */
+.leaflet-control-attribution {
+  background: rgba(18, 18, 18, .8) !important;
+  color: var(--muted) !important;
 }
-.note strong { color: var(--title); }
-.note em { color: var(--ink); font-style: italic; }
+.leaflet-control-attribution a { color: var(--accent) !important; }
+
+/* --- Barre d'état (bas de fenêtre) : indice API --- */
+.statusbar {
+  flex: none;
+  padding: 6px 1.25rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+.unit { color: var(--muted); font-size: 11px; }
 
 /* --- Bandeau « enregistrement en cours » --- */
 .rec-banner {
@@ -232,6 +232,33 @@ main { padding: 20px; }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+/* Champs de saisie texte dans les modales (clé API, URL) */
+.field-label {
+  display: block;
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.field-input {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: .55rem .7rem;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.field-input::placeholder { color: #555; }
+
 /* Aperçu de la capture d'écran dans la modale */
 .capture-preview {
   display: flex;
@@ -252,7 +279,7 @@ main { padding: 20px; }
 .capture-preview img:not([src]) { display: none; }
 .btn-small { padding: .3rem .7rem; font-size: .82rem; }
 
-/* Badge « en attente d'envoi » (file hors-ligne) */
+/* Badge « en attente d'envoi » (file hors-ligne) — cliquable : relance l'envoi */
 .queue-badge {
   display: inline-flex;
   align-items: center;
@@ -264,7 +291,19 @@ main { padding: 20px; }
   font-size: 12px;
   font-family: var(--mono);
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
 }
+/* L'attribut `hidden` doit l'emporter sur le display ci-dessus (origine auteur
+   > UA), sinon le badge reste affiché même file vide. */
+.queue-badge[hidden] { display: none; }
+.queue-badge:hover,
+.queue-badge:focus-visible {
+  background: var(--warn);
+  color: #1a1205;
+  outline: none;
+}
+.queue-badge.is-busy { opacity: .55; cursor: progress; pointer-events: none; }
 
 /* Bouton danger (effacement) */
 .btn-danger { color: var(--danger); border-color: var(--danger); }
@@ -278,17 +317,6 @@ main { padding: 20px; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn:disabled:hover { background: transparent; color: var(--accent); border-color: var(--accent); }
 .btn-accent:disabled:hover { background: var(--accent); color: #fff; }
-
-/* Bouton flottant « Capture d'écran » (bas à droite) */
-.btn-capture {
-  position: fixed;
-  bottom: 22px;
-  right: 22px;
-  z-index: 900;
-  padding: .7rem 1.2rem;
-  font-size: .95rem;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
-}
 
 /* Liste des posers dans la modale d'envoi */
 .send-list { list-style: none; margin: 0 0 16px; padding: 0; }

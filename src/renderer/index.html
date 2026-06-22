@@ -3,26 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self';">
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data: https://*.tile.opentopomap.org;">
   <title>Backcountry Pathfinders</title>
-  <!-- Icônes Phosphor Light vendorées en local (CSP stricte, app hors-ligne) -->
+  <!-- Icônes Phosphor Light + Leaflet vendorés en local (CSP stricte, app hors-ligne) -->
   <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="styles.css">
+  <script src="vendor/leaflet/leaflet.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <i class="ph-light ph-mountains brand-mark"></i>
-      <div>
-        <h1>Backcountry Pathfinders</h1>
-        <p class="subtitle" data-i18n="appSubtitle">Évaluateur de pistes de brousse — acquisition MSFS 2024</p>
-      </div>
+      <img class="brand-logo" src="../img/bpdesk.png" alt="Backcountry Pathfinders Desktop">
+      <!-- Capture d'écran (actif seulement posé + arrêté + frein) -->
+      <button id="btn-capture" class="btn btn-accent" disabled>
+        <i class="ph-light ph-camera"></i> <span data-i18n="btnCapture">Capture d'écran</span>
+      </button>
     </div>
     <div class="conn">
-      <span id="status-dot" class="dot dot-off"></span>
-      <span id="status-text">Déconnecté</span>
-      <button id="btn-connect" class="btn btn-accent"><i class="ph-light ph-plugs"></i> Connecter SimConnect</button>
-      <span id="queue-badge" class="queue-badge" hidden></span>
+      <button id="btn-connect" class="btn btn-state-off"><i class="ph-light ph-plugs"></i> Connecter MSFS2024</button>
+      <button id="btn-api-key" class="btn" data-i18n-title="apiKeyTitle" title="Clé API"><i class="ph-light ph-key"></i> <span data-i18n="btnApiKey">Clé API</span></button>
+      <button id="queue-badge" class="queue-badge" type="button" data-i18n-title="queueRetryTitle" hidden></button>
       <!-- Bouton toggle bilingue FR / EN (en haut à droite, comme NavXpressVFR) -->
       <button id="btn-lang-toggle" class="btn-lang" data-i18n-title="toggleTitle" title="Changer de langue / Switch language">
         <span class="lang-fr lang-active">FR</span>
@@ -32,34 +33,39 @@
     </div>
   </header>
 
+  <!-- Second bandeau : données live essentielles (reprises de Scan live) -->
+  <div class="subbar">
+    <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLat">Latitude</span> <span id="b-lat" class="subval">—</span></div>
+    <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLon">Longitude</span> <span id="b-lon" class="subval">—</span></div>
+    <div class="subbar-item"><i class="ph-light ph-arrow-line-up"></i> <span data-i18n="lblAmsl">Altitude MSL</span> <span id="b-amsl" class="subval">—</span><span class="unit">ft</span></div>
+  </div>
+
   <main>
-    <section class="panel">
-      <h2><i class="ph-light ph-broadcast"></i> <span data-i18n="scanLive">Scan live</span></h2>
-      <p class="hint" id="api-hint">…</p>
-      <div class="grid">
-        <div class="cell"><label><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLat">Latitude</span></label><span id="v-lat" class="val">—</span></div>
-        <div class="cell"><label><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLon">Longitude</span></label><span id="v-lon" class="val">—</span></div>
-        <div class="cell"><label><i class="ph-light ph-arrow-line-up"></i> <span data-i18n="lblAmsl">Altitude MSL</span></label><span id="v-amsl" class="val">—</span><span class="unit">ft</span></div>
-        <div class="cell"><label><i class="ph-light ph-arrows-vertical"></i> <span data-i18n="lblAgl">Hauteur sol (AGL)</span></label><span id="v-agl" class="val">—</span><span class="unit">ft</span></div>
-        <div class="cell"><label><i class="ph-light ph-mountains"></i> <span data-i18n="lblRelief">Relief (GROUND ALT)</span></label><span id="v-ground" class="val">—</span><span class="unit">ft</span></div>
-        <div class="cell"><label><i class="ph-light ph-gauge"></i> <span data-i18n="lblGs">Vitesse sol</span></label><span id="v-gs" class="val">—</span><span class="unit">kt</span></div>
-        <div class="cell"><label><i class="ph-light ph-compass"></i> <span data-i18n="lblHdg">Cap vrai</span></label><span id="v-hdg" class="val">—</span><span class="unit">°</span></div>
-        <div class="cell"><label><i class="ph-light ph-stack"></i> <span data-i18n="lblSurf">Type de sol</span></label><span id="v-surf" class="val">—</span></div>
-        <div class="cell"><label><i class="ph-light ph-drop"></i> <span data-i18n="lblCond">État du sol</span></label><span id="v-cond" class="val">—</span></div>
-        <div class="cell"><label><i class="ph-light ph-airplane-landing"></i> <span data-i18n="lblOnGround">Au sol</span></label><span id="v-ground-flag" class="val">—</span></div>
-        <div class="cell"><label><i class="ph-light ph-hand-palm"></i> <span data-i18n="lblBrake">Frein parking</span></label><span id="v-brake" class="val">—</span></div>
-      </div>
-      <p class="note" data-i18n-html="note">
-        Rappel : <strong>type / état de sol</strong> ne sont fiables qu'<em>au contact</em> du sol.
-        Le <strong>relief</strong> (GROUND ALTITUDE) est lisible en vol — c'est la donnée centrale du scan.
-      </p>
-    </section>
+    <!-- Carte (fond OpenTopoMap), suit l'avion quand SimConnect est connecté -->
+    <div id="map"></div>
   </main>
 
-  <!-- Bouton flottant « Capture d'écran » (actif seulement posé+arrêté+frein) -->
-  <button id="btn-capture" class="btn btn-accent btn-capture" disabled>
-    <i class="ph-light ph-camera"></i> <span data-i18n="btnCapture">Capture d'écran</span>
-  </button>
+  <!-- Barre d'état : indice de configuration de l'API -->
+  <footer class="statusbar">
+    <span class="hint" id="api-hint">…</span>
+  </footer>
+
+  <!-- Modale : saisie de la clé API -->
+  <div id="apikey-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-key"></i> <span data-i18n="apiKeyTitle">Clé API</span></h3>
+      <p class="modal-text" data-i18n="apiKeyIntro">Saisissez la clé API de votre compte Backcountry Pathfinders. Elle est enregistrée localement sur cet ordinateur et envoyée au site à chaque relevé.</p>
+      <label class="field-label" for="apikey-input" data-i18n="apiKeyLabel">Clé API</label>
+      <input id="apikey-input" class="field-input" type="text" spellcheck="false" autocomplete="off" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+      <label class="field-label" for="apiurl-input" data-i18n="apiUrlLabel">URL de l'API</label>
+      <input id="apiurl-input" class="field-input" type="text" spellcheck="false" autocomplete="off" placeholder="http://localhost/backcountry">
+      <p id="apikey-status" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-apikey-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-apikey-save" class="btn btn-accent"><i class="ph-light ph-floppy-disk"></i> <span data-i18n="btnSaveKey">Enregistrer</span></button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modale : capture d'écran (cadrage manuel dans MSFS) -->
   <div id="capture-overlay" class="overlay" hidden>

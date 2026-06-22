@@ -16,26 +16,26 @@ let lastStatusState = 'disconnected';   // dernier état connu (pour re-rendu à
 let lastStatusDetail = '';
 let lastConfig = null;                   // dernière config API (pour re-rendu de l'indice)
 
-// (Re)dessine le bloc de statut + le libellé du bouton dans la langue courante.
+// (Re)dessine le bouton de connexion : sa COULEUR porte l'état (rouge/orange/
+// vert), son libellé et son infobulle de détail sont dans la langue courante.
 function renderStatus() {
-  const dot = $('status-dot');
-  const txt = $('status-text');
   const btn = $('btn-connect');
-  dot.className = 'dot';
+  btn.classList.remove('btn-state-off', 'btn-state-wait', 'btn-state-on');
   const detail = lastStatusDetail ? ` · ${lastStatusDetail}` : '';
 
   if (lastStatusState === 'connected') {
-    dot.classList.add('dot-on');
-    txt.textContent = t('statusConnected') + detail;
+    btn.classList.add('btn-state-on');
     btn.innerHTML = '<i class="ph-light ph-plugs-connected"></i> ' + t('btnDisconnect');
+    btn.title = t('statusConnected') + detail;
     connecte = true;
   } else if (lastStatusState === 'connecting') {
-    dot.classList.add('dot-wait');
-    txt.textContent = t('statusConnecting');
+    btn.classList.add('btn-state-wait');
+    btn.innerHTML = '<i class="ph-light ph-plugs"></i> ' + t('statusConnecting');
+    btn.title = t('statusConnecting');
   } else {
-    dot.classList.add('dot-off');
-    txt.textContent = t('statusDisconnected') + detail;
+    btn.classList.add('btn-state-off');
     btn.innerHTML = '<i class="ph-light ph-plugs"></i> ' + t('btnConnect');
+    btn.title = t('statusDisconnected') + detail;
     connecte = false;
     viderScan();
     setCaptureEnabled(false);   // plus de flux → bouton capture désactivé
@@ -58,25 +58,45 @@ function renderApiHint() {
 function fmt(n, dec = 0) {
   return (typeof n === 'number' && isFinite(n)) ? n.toFixed(dec) : '—';
 }
-function boolTxt(b) { return b ? t('yes') : t('no'); }
+
+// --- Carte (fond OpenTopoMap) ---
+let map = null;
+let planeMarker = null;
+let suivreAvion = true;   // recentrage auto tant que l'utilisateur n'a pas déplacé la carte
+
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([46.8, 2.5], 5);  // vue par défaut (France)
+  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    maxZoom: 17,
+    attribution: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap',
+  }).addTo(map);
+  map.on('dragstart', () => { suivreAvion = false; });   // l'utilisateur explore → on cesse de suivre
+}
+
+function majCarte(f) {
+  if (!map || typeof f.lat !== 'number' || typeof f.lon !== 'number'
+      || !isFinite(f.lat) || !isFinite(f.lon)) return;
+  const ll = [f.lat, f.lon];
+  if (!planeMarker) {
+    planeMarker = L.marker(ll).addTo(map);
+    map.setView(ll, 13);   // premier point : on cadre sur l'avion
+  } else {
+    planeMarker.setLatLng(ll);
+    if (suivreAvion) map.panTo(ll);
+  }
+}
 
 function viderScan() {
-  ['v-lat','v-lon','v-amsl','v-agl','v-ground','v-gs','v-hdg','v-surf','v-cond','v-ground-flag','v-brake']
-    .forEach((id) => { $(id).textContent = '—'; });
+  ['b-lat','b-lon','b-amsl'].forEach((id) => { $(id).textContent = '—'; });
+  if (map && planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
+  suivreAvion = true;
 }
 
 function majScan(f) {
-  $('v-lat').textContent = fmt(f.lat, 5);
-  $('v-lon').textContent = fmt(f.lon, 5);
-  $('v-amsl').textContent = fmt(f.amslFt);
-  $('v-agl').textContent = fmt(f.aglFt);
-  $('v-ground').textContent = fmt(f.groundAltFt);
-  $('v-gs').textContent = fmt(f.groundSpeedKt, 1);
-  $('v-hdg').textContent = fmt(f.headingTrue);
-  $('v-surf').textContent = f.surfaceTypeLabel || '—';
-  $('v-cond').textContent = f.surfaceCondLabel || '—';
-  $('v-ground-flag').textContent = boolTxt(f.onGround);
-  $('v-brake').textContent = boolTxt(f.parkingBrake);
+  $('b-lat').textContent = fmt(f.lat, 5);
+  $('b-lon').textContent = fmt(f.lon, 5);
+  $('b-amsl').textContent = fmt(f.amslFt);
+  majCarte(f);
 }
 
 // --- Câblage ---
@@ -103,6 +123,45 @@ window.bc.onStatus((s) => {
   if (s.state) setStatus(s.state, s.app || s.error || s.warn);
 });
 window.bc.onScan((f) => majScan(f));
+
+// Config rafraîchie par le main (après enregistrement de la clé) → MAJ de l'indice.
+window.bc.onConfig((cfg) => { lastConfig = cfg; renderApiHint(); });
+
+// ============================================================
+// Clé API — saisie dynamique (bouton + modale).
+// ============================================================
+$('btn-api-key').addEventListener('click', () => {
+  const st = $('apikey-status');
+  st.hidden = true; st.className = 'modal-status';
+  $('apikey-input').value = '';   // on ne ré-affiche jamais le secret stocké
+  $('apiurl-input').value = (lastConfig && lastConfig.apiBaseUrl) || '';
+  $('btn-apikey-save').disabled = false;
+  $('apikey-overlay').hidden = false;
+  $('apikey-input').focus();
+});
+
+$('btn-apikey-cancel').addEventListener('click', () => { $('apikey-overlay').hidden = true; });
+
+$('btn-apikey-save').addEventListener('click', async () => {
+  const key = $('apikey-input').value.trim();
+  const url = $('apiurl-input').value.trim();
+  const st = $('apikey-status');
+  $('btn-apikey-save').disabled = true;
+  const res = await window.bc.setApiKey(key, url);
+  if (res.ok) {
+    lastConfig = { apiBaseUrl: res.apiBaseUrl, cleConfiguree: res.cleConfiguree, source: res.source };
+    renderApiHint();
+    st.className = 'modal-status is-ok';
+    st.textContent = res.cleConfiguree ? t('apiKeySaved') : t('apiKeyCleared');
+    st.hidden = false;
+    setTimeout(() => { $('apikey-overlay').hidden = true; }, 1400);
+  } else {
+    st.className = 'modal-status is-error';
+    st.textContent = t('apiKeyErr').replace('{err}', res.error || '?');
+    st.hidden = false;
+    $('btn-apikey-save').disabled = false;
+  }
+});
 
 // ============================================================
 // Jalon 4 — capture manuelle (bouton gated) + envoi groupé en fin de vol.
@@ -231,8 +290,22 @@ function setQueueBadge(n) {
 }
 window.bc.onQueueStatus((p) => setQueueBadge(p.restants));
 
+// Clic sur le badge → relance manuelle de l'envoi de la file hors-ligne.
+$('queue-badge').addEventListener('click', async () => {
+  if (lastQueueCount <= 0) return;
+  const b = $('queue-badge');
+  b.classList.add('is-busy');
+  try {
+    const res = await window.bc.relancerFile();   // le main rediffuse le compte (onQueueStatus)
+    if (res && typeof res.restants === 'number') setQueueBadge(res.restants);
+  } finally {
+    b.classList.remove('is-busy');
+  }
+});
+
 // Initialisation : applique la langue courante, puis l'état initial.
 initI18n();
+initMap();
 setStatus('disconnected');
 window.bc.getConfig().then((cfg) => {
   lastConfig = cfg;

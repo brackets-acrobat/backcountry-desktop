@@ -15,8 +15,6 @@
 
 const TRANSLATIONS = {
   fr: {
-    appSubtitle: 'Évaluateur de pistes de brousse — acquisition MSFS 2024',
-
     statusConnected: 'Connecté',
     statusConnecting: 'Connexion…',
     statusDisconnected: 'MSFS Déconnecté',
@@ -24,20 +22,10 @@ const TRANSLATIONS = {
     btnDisconnect: 'Déconnecter MSFS2024',
     toggleTitle: 'Changer de langue / Switch language',
 
-    scanLive: 'Scan live',
+    // Second bandeau de données live
     lblLat: 'Latitude',
     lblLon: 'Longitude',
     lblAmsl: 'Altitude MSL',
-    lblAgl: 'Hauteur sol (AGL)',
-    lblRelief: 'Relief (GROUND ALT)',
-    lblGs: 'Vitesse sol',
-    lblHdg: 'Cap vrai',
-    lblSurf: 'Type de sol',
-    lblCond: 'État du sol',
-    lblOnGround: 'Au sol',
-    lblBrake: 'Frein parking',
-    yes: 'Oui',
-    no: 'Non',
 
     // Jalon 2 — relevé du poser
     recBanner: 'Poser détecté — enregistrement en cours… ({n} pts · {d} m)',
@@ -56,6 +44,7 @@ const TRANSLATIONS = {
     captureUnavailable: 'Capture indisponible',
     sendQueued: 'Hors-ligne — poser mis en file, renvoi automatique plus tard.',
     queuePending: '{n} poser(s) en attente d\'envoi',
+    queueRetryTitle: 'Cliquer pour réessayer l\'envoi maintenant',
 
     // Jalon 4 — capture manuelle + envoi groupé fin de vol
     btnCapture: 'Capture d\'écran',
@@ -88,16 +77,23 @@ const TRANSLATIONS = {
     sendNewPlace: ', nouveau lieu',
     sendErr: 'Échec de l\'envoi : {err}',
 
-    note: 'Rappel : <strong>type / état de sol</strong> ne sont fiables qu\'<em>au contact</em> du sol. Le <strong>relief</strong> (GROUND ALTITUDE) est lisible en vol — c\'est la donnée centrale du scan.',
-
     // {url} est remplacé par l'URL de l'API.
     apiConfigured: 'API : {url} — clé configurée ✓',
-    apiMissing: 'API : {url} — ⚠ clé non configurée (copie config.example.json → config.json).',
+    apiMissing: 'API : {url} — ⚠ clé non configurée (cliquez sur « Clé API »).',
+
+    // Clé API saisie dans l'UI
+    btnApiKey: 'Clé API',
+    apiKeyTitle: 'Clé API',
+    apiKeyIntro: 'Saisissez la clé API de votre compte Backcountry Pathfinders. Elle est enregistrée localement sur cet ordinateur et envoyée au site à chaque relevé.',
+    apiKeyLabel: 'Clé API',
+    apiUrlLabel: 'URL de l\'API',
+    btnSaveKey: 'Enregistrer',
+    apiKeySaved: 'Clé API enregistrée ✓',
+    apiKeyCleared: 'Clé API effacée.',
+    apiKeyErr: 'Échec de l\'enregistrement : {err}',
   },
 
   en: {
-    appSubtitle: 'Backcountry runway evaluator — MSFS 2024 acquisition',
-
     statusConnected: 'Connected',
     statusConnecting: 'Connecting…',
     statusDisconnected: 'MSFS Disconnected',
@@ -105,20 +101,10 @@ const TRANSLATIONS = {
     btnDisconnect: 'Disconnect MSFS2024',
     toggleTitle: 'Changer de langue / Switch language',
 
-    scanLive: 'Live scan',
+    // Second live-data bar
     lblLat: 'Latitude',
     lblLon: 'Longitude',
     lblAmsl: 'Altitude MSL',
-    lblAgl: 'Height AGL',
-    lblRelief: 'Terrain (GROUND ALT)',
-    lblGs: 'Ground speed',
-    lblHdg: 'True heading',
-    lblSurf: 'Surface type',
-    lblCond: 'Surface condition',
-    lblOnGround: 'On ground',
-    lblBrake: 'Parking brake',
-    yes: 'Yes',
-    no: 'No',
 
     // Milestone 2 — landing survey
     recBanner: 'Landing detected — recording… ({n} pts · {d} m)',
@@ -137,6 +123,7 @@ const TRANSLATIONS = {
     captureUnavailable: 'Screenshot unavailable',
     sendQueued: 'Offline — landing queued, will resend automatically later.',
     queuePending: '{n} landing(s) pending upload',
+    queueRetryTitle: 'Click to retry upload now',
 
     // Milestone 4 — manual capture + batch send at end of flight
     btnCapture: 'Screenshot',
@@ -169,10 +156,19 @@ const TRANSLATIONS = {
     sendNewPlace: ', new place',
     sendErr: 'Send failed: {err}',
 
-    note: 'Reminder: <strong>surface type / condition</strong> are only reliable <em>on the ground</em>. <strong>Terrain</strong> (GROUND ALTITUDE) is readable in flight — it\'s the core scan data.',
-
     apiConfigured: 'API: {url} — key configured ✓',
-    apiMissing: 'API: {url} — ⚠ key not configured (copy config.example.json → config.json).',
+    apiMissing: 'API: {url} — ⚠ key not configured (click “API key”).',
+
+    // API key entered in the UI
+    btnApiKey: 'API key',
+    apiKeyTitle: 'API key',
+    apiKeyIntro: 'Enter the API key from your Backcountry Pathfinders account. It is stored locally on this computer and sent to the website with each survey.',
+    apiKeyLabel: 'API key',
+    apiUrlLabel: 'API URL',
+    btnSaveKey: 'Save',
+    apiKeySaved: 'API key saved ✓',
+    apiKeyCleared: 'API key cleared.',
+    apiKeyErr: 'Save failed: {err}',
   },
 };
 

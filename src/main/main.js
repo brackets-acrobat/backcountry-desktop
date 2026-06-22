@@ -14,13 +14,23 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
-const { chargerConfig } = require('./config');
+const { chargerConfig, enregistrerCle, dossierBase } = require('./config');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
 const { envoyer } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
 const { enfiler, compter, flush } = require('./queue');
+
+// Centralise les données d'Electron (cache, localStorage, session…) dans un
+// sous-dossier du dossier de travail au lieu d'AppData → tout au même endroit
+// que screenshots/queue/settings.json. À faire AVANT que l'app soit « ready ».
+try {
+  const userData = path.join(dossierBase(), 'app-data');
+  fs.mkdirSync(userData, { recursive: true });
+  app.setPath('userData', userData);
+} catch (_) { /* repli silencieux sur l'emplacement par défaut */ }
 
 let mainWindow = null;
 let config = chargerConfig();
@@ -32,11 +42,10 @@ function broadcast(channel, payload) {
   });
 }
 
-// Dossiers de travail, sous Mes documents par défaut.
+// Dossiers de travail (sous Documents/Backcountry Pathfinders par défaut).
+// Base partagée avec config.js (settings.json y est aussi écrit).
 function dossiers() {
-  const base = (config.captureDir && config.captureDir.trim())
-    ? config.captureDir
-    : path.join(app.getPath('documents'), 'Backcountry Pathfinders');
+  const base = dossierBase();
   return {
     screenshots: path.join(base, 'screenshots'),
     queue: path.join(base, 'queue'),
@@ -50,9 +59,12 @@ function broadcastQueue() {
 }
 
 // Rejoue la file hors-ligne (démarrage, périodique, après reconnexion).
+// On rediffuse TOUJOURS le compte réel à la fin (même sans clé API) pour qu'un
+// badge figé se recale sur l'état du disque.
 async function flushQueue() {
-  if (!config._cleConfiguree) return;
-  await flush(dossiers().queue, (r) => envoyer(config, r, r._capturePath || null));
+  if (config._cleConfiguree) {
+    await flush(dossiers().queue, (r) => envoyer(config, r, r._capturePath || null));
+  }
   broadcastQueue();
 }
 
@@ -98,11 +110,29 @@ function createWindow() {
 }
 
 // --- IPC ---
-ipcMain.handle('app-config', async () => ({
-  apiBaseUrl: config.apiBaseUrl,
-  cleConfiguree: config._cleConfiguree,
-  source: config._source,
-}));
+function configPublique() {
+  return {
+    apiBaseUrl: config.apiBaseUrl,
+    cleConfiguree: config._cleConfiguree,
+    source: config._source,
+  };
+}
+
+ipcMain.handle('app-config', async () => configPublique());
+
+// Enregistre la clé API saisie dans l'UI (settings.json), recharge la config,
+// notifie le renderer, et rejoue la file hors-ligne si la clé devient valide.
+ipcMain.handle('config-set-key', async (_e, { apiKey, apiBaseUrl } = {}) => {
+  try {
+    config = enregistrerCle(apiKey, apiBaseUrl);
+  } catch (e) {
+    return { ok: false, error: e && e.message };
+  }
+  const pub = configPublique();
+  broadcast('app-config', pub);
+  if (config._cleConfiguree) flushQueue();
+  return { ok: true, ...pub };
+});
 
 ipcMain.handle('sc-connect', async () => sim.connecter());
 ipcMain.handle('sc-disconnect', async () => { await sim.deconnecter(); return { ok: true }; });
@@ -149,6 +179,12 @@ ipcMain.handle('envoyer-tout', async (_e, landings) => {
 ipcMain.handle('flight-discard', async () => { fsm.reset(); return { ok: true }; });
 
 ipcMain.handle('queue-status', async () => ({ restants: compter(dossiers().queue) }));
+
+// Relance manuelle de la file hors-ligne (clic sur le badge « en attente »).
+ipcMain.handle('queue-flush', async () => {
+  await flushQueue();   // émet déjà queue-status au renderer (broadcastQueue)
+  return { restants: compter(dossiers().queue), cleConfiguree: config._cleConfiguree };
+});
 
 app.whenReady().then(() => {
   createWindow();

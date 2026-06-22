@@ -19,14 +19,17 @@ function subscribe(channel, cb) {
 contextBridge.exposeInMainWorld('bc', {
   // Requêtes (renderer → main)
   getConfig:    () => ipcRenderer.invoke('app-config'),
+  setApiKey:    (apiKey, apiBaseUrl) => ipcRenderer.invoke('config-set-key', { apiKey, apiBaseUrl }),
   connect:      () => ipcRenderer.invoke('sc-connect'),
   disconnect:   () => ipcRenderer.invoke('sc-disconnect'),
   captureNow:   (uid) => ipcRenderer.invoke('capture-now', uid),
   envoyerTout:  (landings) => ipcRenderer.invoke('envoyer-tout', landings),
   flightDiscard: () => ipcRenderer.invoke('flight-discard'),
   etatFile:     () => ipcRenderer.invoke('queue-status'),
+  relancerFile: () => ipcRenderer.invoke('queue-flush'),
 
   // Abonnements (main → renderer). Chaque appel renvoie une fonction de désabonnement.
+  onConfig:          (cb) => subscribe('app-config', cb),
   onStatus:          (cb) => subscribe('sc-status', cb),
   onScan:            (cb) => subscribe('sc-scan', cb),
   onLandingRecorded: (cb) => subscribe('fsm-landing-recorded', cb),
