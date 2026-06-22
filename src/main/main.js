@@ -12,7 +12,7 @@
 // modale envoie tout (relevés + photos en multipart) — avec file hors-ligne.
 // ============================================================
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { open: scOpen, Protocol: SCProtocol } = require('node-simconnect');
@@ -23,7 +23,7 @@ const { runExtraction: runNavaidsExtraction } = require('./extract-navaids-msfs'
 const airportsData = require('./airports-data');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
-const { envoyer } = require('./api-client');
+const { envoyer, recupererLieux } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
 const { enfiler, compter, flush } = require('./queue');
 
@@ -97,6 +97,13 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Liens externes (ex. « Voir le détail » d'un lieu dans les popups carte) :
+  // ouverts dans le navigateur par défaut, jamais dans une fenêtre Electron.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   // removeMenu() supprime Ctrl+R / F12 → on les rebranche manuellement.
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -276,6 +283,9 @@ ipcMain.handle('extraire-navaids-msfs', async (event) => {
 // --- Données carte : aéroports / navaids par bounding box ---
 ipcMain.handle('aeroports-bbox', async (_e, bbox) => airportsData.aeroportsDansBbox(bbox));
 ipcMain.handle('navaids-bbox', async (_e, bbox) => airportsData.navaidsDansBbox(bbox));
+
+// Lieux de poser des utilisateurs (depuis la base du site, GET /api/lieux).
+ipcMain.handle('lieux-all', async () => recupererLieux(config));
 
 app.whenReady().then(() => {
   createWindow();

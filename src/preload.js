@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('bc', {
   aeroportsDansBbox: (bbox) => ipcRenderer.invoke('aeroports-bbox', bbox),
   navaidsDansBbox: (bbox) => ipcRenderer.invoke('navaids-bbox', bbox),
 
+  // Lieux de poser des utilisateurs (base du site)
+  lieux: () => ipcRenderer.invoke('lieux-all'),
+
   // Abonnements (main → renderer). Chaque appel renvoie une fonction de désabonnement.
   onConfig:          (cb) => subscribe('app-config', cb),
   onStatus:          (cb) => subscribe('sc-status', cb),

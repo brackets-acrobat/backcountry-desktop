@@ -81,7 +81,9 @@ const BASE_LAYERS = {
 };
 
 // Couches de données MSFS (aéroports / héliports / hydrobases / navaids)
+// + lieux de poser des utilisateurs (depuis la base du site).
 let airportsLayer = null, heliportsLayer = null, seaplanesLayer = null, navaidsLayer = null;
+let lieuxLayer = null;
 let _couchesTimer = null, _airReqId = 0, _navReqId = 0;
 const ZOOM_MIN_COUCHES = 8;
 const TAILLES_AEROPORT = { large_airport: 9, medium_airport: 7, small_airport: 5, heliport: 6, seaplane_base: 6 };
@@ -91,6 +93,7 @@ const layerState = {
   heliports: localStorage.getItem('bc-layer-heliports') === '1',
   seaplanes: localStorage.getItem('bc-layer-seaplanes') === '1',
   navaids:   localStorage.getItem('bc-layer-navaids')   === '1',
+  lieux:     localStorage.getItem('bc-layer-lieux')     === '1',
 };
 
 // Icône avion (vue de dessus, pointe vers le nord à 0°). Une <img> dans un
@@ -124,11 +127,13 @@ function initMap() {
   heliportsLayer = L.layerGroup().addTo(map);
   seaplanesLayer = L.layerGroup().addTo(map);
   navaidsLayer   = L.layerGroup().addTo(map);
+  lieuxLayer     = L.layerGroup().addTo(map);
   ajouterBoutonSuivi();
   ajouterControlesCarte();
   map.on('moveend', planifierRafraichirCouches);
   map.on('zoomend', planifierRafraichirCouches);
   rafraichirCouches();
+  rafraichirLieux();   // lieux : liste globale, chargée une fois (indépendante du zoom/bbox)
 }
 
 // Applique (et persiste) le fond de carte. Le tileLayer va dans le tilePane,
@@ -334,6 +339,85 @@ async function rafraichirNavaids() {
   }
 }
 
+// ============================================================
+// Lieux de poser des utilisateurs (couche « Lieux de poser »).
+// Liste GLOBALE (pas de bbox) : on la charge une fois et on la garde en cache
+// pour la session. Visible à tous les zooms (≠ aéroports/navaids). Code couleur
+// et popup repris du site (public/assets/js/carte.js) pour la cohérence visuelle.
+// ============================================================
+let _lieuxData = null;        // cache des lieux (null = pas encore chargé)
+let _lieuxChargement = false; // garde anti-requêtes concurrentes
+
+// Couleur du marqueur selon la surface dominante (palette identique au site).
+function couleurSurfaceLieu(surface) {
+  const s = String(surface || '').toLowerCase();
+  if (s.includes('grass')) return '#5fbf52';
+  if (s.includes('dirt') || s.includes('sand')) return '#b07a3c';
+  if (s.includes('water')) return '#3d8fd1';
+  if (s.includes('snow') || s.includes('ice')) return '#7fd0e0';
+  if (s.includes('concrete') || s.includes('asphalt')) return '#9aa0a6';
+  return '#c9c9c9';
+}
+
+function popupLieuHtml(lieu) {
+  const nom = lieu.nom ? escapeHtml(lieu.nom) : `${t('lieuUntitled')} #${lieu.id}`;
+  const lignes = [];
+  if (lieu.pays) lignes.push(`${t('lieuCountry')} : ${escapeHtml(lieu.pays)}`);
+  if (lieu.surface) lignes.push(`${t('lieuSurface')} : ${escapeHtml(lieu.surface)}`);
+  if (Number.isFinite(lieu.altitude_m)) {
+    lignes.push(`${t('lieuAltitude')} : ${Math.round(lieu.altitude_m * 3.280839895)} ft`);
+  }
+  lignes.push(`${t('lieuSurveys')} : ${Number.isFinite(lieu.nb_releves) ? lieu.nb_releves : 0}`);
+  if (Number.isFinite(lieu.note_moyenne)) {
+    lignes.push(`${t('lieuRating')} : ${lieu.note_moyenne.toFixed(1)}/5 <i class="ph-fill ph-star"></i>`);
+  }
+  if (Number.isFinite(lieu.difficulte_moyenne)) {
+    lignes.push(`${t('lieuDifficulty')} : ${lieu.difficulte_moyenne.toFixed(1)}/5`);
+  }
+  const base = (lastConfig && lastConfig.apiBaseUrl ? lastConfig.apiBaseUrl : '').replace(/\/+$/, '');
+  const lien = base
+    ? `<a class="lieu-popup-link" href="${base}/lieu/${lieu.id}" target="_blank" rel="noopener">${t('lieuDetail')} <i class="ph-bold ph-arrow-right"></i></a>`
+    : '';
+  return `<div class="lieu-popup"><strong>${nom}</strong>`
+    + `<div class="lieu-popup-lines">${lignes.join('<br>')}</div>${lien}</div>`;
+}
+
+// Dessine les marqueurs des lieux depuis le cache (appelé après chargement et
+// à chaque bascule de la couche).
+function dessinerLieux() {
+  if (!lieuxLayer) return;
+  lieuxLayer.clearLayers();
+  if (!layerState.lieux || !Array.isArray(_lieuxData)) return;
+  for (const lieu of _lieuxData) {
+    if (!Number.isFinite(lieu.lat) || !Number.isFinite(lieu.lon)) continue;
+    const m = L.circleMarker([lieu.lat, lieu.lon], {
+      radius: 5, color: '#000', weight: 1,
+      fillColor: couleurSurfaceLieu(lieu.surface), fillOpacity: 0.9,
+    });
+    m.bindPopup(() => popupLieuHtml(lieu));   // contenu généré à l'ouverture (config/langue à jour)
+    m.addTo(lieuxLayer);
+  }
+}
+
+// (Re)charge et dessine les lieux. Le chargement réseau n'a lieu qu'une fois ;
+// `forcer` invalide le cache (rechargement explicite). En cas d'échec réseau le
+// cache reste vide → on retentera au prochain affichage de la couche.
+async function rafraichirLieux(forcer = false) {
+  if (!lieuxLayer) return;
+  if (!layerState.lieux) { lieuxLayer.clearLayers(); return; }
+  if (forcer) _lieuxData = null;
+  if (_lieuxData === null && !_lieuxChargement) {
+    _lieuxChargement = true;
+    let res;
+    try { res = await window.bc.lieux(); } catch (_) { res = null; }
+    _lieuxChargement = false;
+    if (!layerState.lieux) return;            // couche coupée pendant la requête
+    if (res && res.ok) _lieuxData = res.lieux || [];
+    else { lieuxLayer.clearLayers(); return; } // échec → on retentera plus tard
+  }
+  dessinerLieux();
+}
+
 // Contrôles déroulants (haut-droite) : couches MSFS + fond de carte, côte à côte.
 function ajouterControlesCarte() {
   const ctl = L.control({ position: 'topright' });
@@ -348,6 +432,7 @@ function ajouterControlesCarte() {
           `<label><input type="checkbox" data-layer="heliports"> <span data-i18n="layerHeliports">${t('layerHeliports')}</span></label>` +
           `<label><input type="checkbox" data-layer="seaplanes"> <span data-i18n="layerSeaplanes">${t('layerSeaplanes')}</span></label>` +
           `<label><input type="checkbox" data-layer="navaids"> <span data-i18n="layerNavaids">${t('layerNavaids')}</span></label>` +
+          `<label><input type="checkbox" data-layer="lieux"> <span data-i18n="layerLieux">${t('layerLieux')}</span></label>` +
         `</div>` +
       `</div>` +
       // Widget 2 — fond de carte (boutons radio)
@@ -380,7 +465,8 @@ function ajouterControlesCarte() {
       cb.addEventListener('change', () => {
         layerState[cb.dataset.layer] = cb.checked;
         localStorage.setItem('bc-layer-' + cb.dataset.layer, cb.checked ? '1' : '0');
-        rafraichirCouches();
+        if (cb.dataset.layer === 'lieux') rafraichirLieux();   // liste globale, hors bbox
+        else rafraichirCouches();
       });
     });
 

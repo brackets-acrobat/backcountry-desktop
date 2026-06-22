@@ -89,4 +89,45 @@ function envoyer(cfg, releve, imagePath = null) {
   });
 }
 
-module.exports = { envoyer };
+// Récupère la liste publique des lieux de poser (GET /api/lieux). Endpoint
+// public : pas d'auth requise. Réponse attendue { ok, lieux: [...] }.
+// Retour : { ok, lieux } en succès, { ok: false, status, error } sinon.
+function recupererLieux(cfg) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(cfg.apiBaseUrl.replace(/\/+$/, '') + '/api/lieux');
+    } catch (e) {
+      return resolve({ ok: false, status: 0, error: 'apiBaseUrl invalide: ' + e.message });
+    }
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'BackcountryPathfinders-Desktop',
+        },
+      },
+      (res) => {
+        let data = '';
+        res.setEncoding('utf-8');
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          let parsed;
+          try { parsed = JSON.parse(data); } catch (_) { parsed = null; }
+          if (res.statusCode >= 200 && res.statusCode < 300 && parsed && parsed.ok) {
+            resolve({ ok: true, lieux: Array.isArray(parsed.lieux) ? parsed.lieux : [] });
+          } else {
+            resolve({ ok: false, status: res.statusCode, error: 'réponse inattendue' });
+          }
+        });
+      }
+    );
+    req.on('error', (err) => resolve({ ok: false, status: 0, error: err.message }));
+    req.end();
+  });
+}
+
+module.exports = { envoyer, recupererLieux };

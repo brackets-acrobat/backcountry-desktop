@@ -317,6 +317,29 @@ main { flex: 1; min-height: 0; padding: 0; position: relative; }
 .ap-tt-name { color: var(--title); }
 .ap-tt-rwy, .nv-tt-type, .nv-tt-freq, .nv-tt-range { color: var(--muted); }
 
+/* Popups des lieux de poser (thème sombre) */
+.leaflet-popup-content-wrapper {
+  background: rgba(18, 18, 18, .95);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .6);
+}
+.leaflet-popup-tip { background: rgba(18, 18, 18, .95); border: 1px solid var(--accent); }
+.leaflet-popup-content { margin: 8px 10px; font-size: 12px; line-height: 1.4; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+.leaflet-container a.leaflet-popup-close-button:hover { color: var(--accent); }
+.lieu-popup strong { color: var(--title); }
+.lieu-popup-lines { color: var(--muted); margin-top: 4px; }
+.lieu-popup-link {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.lieu-popup-link:hover { color: var(--accent-hover); text-decoration: underline; }
+
 /* --- Barre d'état (bas de fenêtre) : indice API --- */
 .statusbar {
   flex: none;

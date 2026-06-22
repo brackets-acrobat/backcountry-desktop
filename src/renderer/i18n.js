@@ -132,8 +132,19 @@ const TRANSLATIONS = {
     layerHeliports: 'Héliports',
     layerSeaplanes: 'Hydrobases',
     layerNavaids: 'Navaids',
+    layerLieux: 'Lieux de poser',
     basemapTitle: 'Fond de carte',
     followTitle: 'Suivre l\'avion',
+
+    // Popup d'un lieu de poser (couche « Lieux de poser »)
+    lieuUntitled: 'Lieu',
+    lieuCountry: 'Pays',
+    lieuSurface: 'Surface',
+    lieuAltitude: 'Alt.',
+    lieuSurveys: 'Relevés',
+    lieuRating: 'Note',
+    lieuDifficulty: 'Difficulté',
+    lieuDetail: 'Voir le détail',
   },
 
   en: {
@@ -253,8 +264,19 @@ const TRANSLATIONS = {
     layerHeliports: 'Heliports',
     layerSeaplanes: 'Seaplane bases',
     layerNavaids: 'Navaids',
+    layerLieux: 'Landing spots',
     basemapTitle: 'Base map',
     followTitle: 'Follow aircraft',
+
+    // Landing-spot popup ("Landing spots" layer)
+    lieuUntitled: 'Spot',
+    lieuCountry: 'Country',
+    lieuSurface: 'Surface',
+    lieuAltitude: 'Alt.',
+    lieuSurveys: 'Surveys',
+    lieuRating: 'Rating',
+    lieuDifficulty: 'Difficulty',
+    lieuDetail: 'View details',
   },
 };
 
