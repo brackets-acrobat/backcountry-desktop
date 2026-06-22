@@ -62,15 +62,358 @@ function fmt(n, dec = 0) {
 // --- Carte (fond OpenTopoMap) ---
 let map = null;
 let planeMarker = null;
-let suivreAvion = true;   // recentrage auto tant que l'utilisateur n'a pas déplacé la carte
+let planeTrack = null;    // tracé (polyline) accumulant les positions de l'avion
+// Mode « suivi de l'avion » (bouton). Quand actif, l'avion reste au centre ;
+// si l'utilisateur déplace la carte, on la laisse et on recentre 5 s plus tard.
+let suiviActif = localStorage.getItem('bc-follow') === '1';
+let suiviPause = false;      // déplacement utilisateur en cours → centrage suspendu
+let _suiviTimer = null;      // minuteur de recentrage (5 s après déplacement)
+let suiviBtnEl = null;       // bouton (pour l'état visuel actif)
+const SUIVI_RECENTRE_MS = 5000;
+let rotationAvion = 0;    // rotation CUMULÉE appliquée à l'icône (degrés, non bornée)
+let capPrecedent = null;  // dernier cap brut reçu (pour calculer le plus court delta)
+
+// Fond de carte (OpenTopoMap par défaut)
+let baseLayer = null;
+const BASE_LAYERS = {
+  opentopomap: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', options: { maxZoom: 17, attribution: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap' } },
+  openstreetmap: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', options: { maxZoom: 19, attribution: '© OpenStreetMap' } },
+};
+
+// Couches de données MSFS (aéroports / héliports / hydrobases / navaids)
+let airportsLayer = null, heliportsLayer = null, seaplanesLayer = null, navaidsLayer = null;
+let _couchesTimer = null, _airReqId = 0, _navReqId = 0;
+const ZOOM_MIN_COUCHES = 8;
+const TAILLES_AEROPORT = { large_airport: 9, medium_airport: 7, small_airport: 5, heliport: 6, seaplane_base: 6 };
+// États des couches, persistés (off par défaut → on les fait apparaître via le menu)
+const layerState = {
+  airports:  localStorage.getItem('bc-layer-airports')  === '1',
+  heliports: localStorage.getItem('bc-layer-heliports') === '1',
+  seaplanes: localStorage.getItem('bc-layer-seaplanes') === '1',
+  navaids:   localStorage.getItem('bc-layer-navaids')   === '1',
+};
+
+// Icône avion (vue de dessus, pointe vers le nord à 0°). Une <img> dans un
+// divIcon : on la fait pivoter en CSS selon le cap (la rotation du marqueur
+// lui-même entrerait en conflit avec le translate de positionnement de Leaflet).
+const planeIcon = L.divIcon({
+  className: 'plane-marker',
+  html: '<img src="../img/icone40x40.png" alt="">',
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],   // centre de l'image sur la position
+});
 
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([46.8, 2.5], 5);  // vue par défaut (France)
-  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    maxZoom: 17,
-    attribution: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap',
-  }).addTo(map);
-  map.on('dragstart', () => { suivreAvion = false; });   // l'utilisateur explore → on cesse de suivre
+  appliquerFond(localStorage.getItem('bc-basemap') || 'opentopomap');  // OpenTopoMap par défaut
+  // Suivi : pendant un déplacement utilisateur, on suspend le centrage ; 5 s
+  // après la fin du déplacement, on recentre sur l'avion. En mode libre, rien.
+  map.on('dragstart', () => {
+    if (!suiviActif) return;
+    suiviPause = true;
+    if (_suiviTimer) { clearTimeout(_suiviTimer); _suiviTimer = null; }
+  });
+  map.on('dragend', () => {
+    if (!suiviActif) return;
+    if (_suiviTimer) clearTimeout(_suiviTimer);
+    _suiviTimer = setTimeout(() => { suiviPause = false; recentrerAvion(); }, SUIVI_RECENTRE_MS);
+  });
+
+  // Couches de données + contrôles déroulants (haut-droite)
+  airportsLayer  = L.layerGroup().addTo(map);
+  heliportsLayer = L.layerGroup().addTo(map);
+  seaplanesLayer = L.layerGroup().addTo(map);
+  navaidsLayer   = L.layerGroup().addTo(map);
+  ajouterBoutonSuivi();
+  ajouterControlesCarte();
+  map.on('moveend', planifierRafraichirCouches);
+  map.on('zoomend', planifierRafraichirCouches);
+  rafraichirCouches();
+}
+
+// Applique (et persiste) le fond de carte. Le tileLayer va dans le tilePane,
+// donc toujours SOUS les marqueurs.
+function appliquerFond(key) {
+  const def = BASE_LAYERS[key] || BASE_LAYERS.opentopomap;
+  if (baseLayer) map.removeLayer(baseLayer);
+  baseLayer = L.tileLayer(def.url, def.options).addTo(map);
+  baseLayer.bringToBack();
+  localStorage.setItem('bc-basemap', BASE_LAYERS[key] ? key : 'opentopomap');
+}
+
+// Recentre la carte sur l'avion (zoom inchangé).
+function recentrerAvion() {
+  if (map && planeMarker) map.panTo(planeMarker.getLatLng());
+}
+
+// Active/désactive le suivi (persisté). À l'activation, recentre tout de suite.
+function setSuivi(on) {
+  suiviActif = on;
+  localStorage.setItem('bc-follow', on ? '1' : '0');
+  suiviPause = false;
+  if (_suiviTimer) { clearTimeout(_suiviTimer); _suiviTimer = null; }
+  if (suiviBtnEl) suiviBtnEl.classList.toggle('active', on);
+  if (on) recentrerAvion();
+}
+
+// Bouton de suivi de l'avion (haut-gauche, sous le contrôle de zoom).
+function ajouterBoutonSuivi() {
+  const ctl = L.control({ position: 'topleft' });
+  ctl.onAdd = function () {
+    const div = L.DomUtil.create('div', 'map-follow');
+    div.innerHTML = `<button class="map-follow-btn" type="button" data-i18n-title="followTitle" title="${t('followTitle')}"><i class="ph-light ph-crosshair"></i></button>`;
+    L.DomEvent.disableClickPropagation(div);
+    suiviBtnEl = div.querySelector('.map-follow-btn');
+    suiviBtnEl.classList.toggle('active', suiviActif);
+    suiviBtnEl.addEventListener('click', () => setSuivi(!suiviActif));
+    return div;
+  };
+  ctl.addTo(map);
+}
+
+// ============================================================
+// Couches MSFS : aéroports / héliports / hydrobases / navaids.
+// Icônes et code couleur REPRIS À L'IDENTIQUE de NavXpressVFR.
+// ============================================================
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// Décale une longitude [-180,180] vers la copie du monde visible (scroll infini).
+function lonVersVue(lon, west) { return west + ((((lon - west) % 360) + 360) % 360); }
+
+// Couleur du marqueur aéroport selon la surface de la piste principale (NavXpress).
+function surfaceMarkerColors(surface) {
+  const s = String(surface || '').toLowerCase();
+  if (/grass/.test(s)) return { fill: '#00d700', stroke: '#0a5e0a', line: '#0a5e0a' };
+  if (/dirt|gravel|sand|shale|coral|turf|earth|mud/.test(s)) return { fill: '#c07a00', stroke: '#5e3c00', line: '#5e3c00' };
+  if (/water/.test(s)) return { fill: '#2970ff', stroke: '#0a2a66', line: '#0d4d6e' };
+  if (/snow|ice/.test(s)) return { fill: '#33fff3', stroke: '#0a5e58', line: '#0a5e58' };
+  if (/unknown/.test(s)) return { fill: '#9aa0a8', stroke: '#4b4f55', line: '#4b4f55' };
+  return { fill: '#fff', stroke: '#000', line: '#000' };
+}
+
+function makeAirportIcon(airport) {
+  if (airport.type === 'heliport') {
+    const rh = TAILLES_AEROPORT.heliport, sizeH = rh * 2 + 12, fs = Math.round(rh * 1.7);
+    const svgH = `<svg viewBox="-${sizeH / 2} -${sizeH / 2} ${sizeH} ${sizeH}" width="${sizeH}" height="${sizeH}" style="overflow:visible;">`
+      + `<circle cx="0" cy="0" r="${rh}" fill="#fff" stroke="#000" stroke-width="1.6"/>`
+      + `<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif" font-weight="700" font-size="${fs}" fill="#000">H</text></svg>`;
+    return L.divIcon({ className: 'airport-marker', html: svgH, iconSize: [sizeH, sizeH], iconAnchor: [sizeH / 2, sizeH / 2] });
+  }
+  if (airport.type === 'seaplane_base') {
+    const rs = TAILLES_AEROPORT.seaplane_base, sizeS = rs * 2 + 12, extS = rs + 4;
+    const headingS = airport.runway ? airport.runway.headingDegT : 0, hasRwyS = !!airport.runway;
+    const svgS = `<svg viewBox="-${sizeS / 2} -${sizeS / 2} ${sizeS} ${sizeS}" width="${sizeS}" height="${sizeS}" style="overflow:visible;">`
+      + (hasRwyS ? `<line x1="-${extS}" y1="0" x2="${extS}" y2="0" stroke="#0d4d6e" stroke-width="2.2" stroke-linecap="round" transform="rotate(${headingS - 90})"/>` : '')
+      + `<circle cx="0" cy="0" r="${rs}" fill="#2970ff" stroke="#0a2a66" stroke-width="1.6"/></svg>`;
+    return L.divIcon({ className: 'airport-marker', html: svgS, iconSize: [sizeS, sizeS], iconAnchor: [sizeS / 2, sizeS / 2] });
+  }
+  const r = TAILLES_AEROPORT[airport.type] || 5, size = r * 2 + 12;
+  const heading = airport.runway ? airport.runway.headingDegT : 0, hasRunway = !!airport.runway;
+  const lineExtent = r + 4, rotation = heading - 90;
+  const sc = surfaceMarkerColors(airport.runway && airport.runway.surface);
+  const svg = `<svg viewBox="-${size / 2} -${size / 2} ${size} ${size}" width="${size}" height="${size}" style="overflow:visible;">`
+    + (hasRunway ? `<line x1="-${lineExtent}" y1="0" x2="${lineExtent}" y2="0" stroke="${sc.line}" stroke-width="2.2" stroke-linecap="round" transform="rotate(${rotation})"/>` : '')
+    + `<circle cx="0" cy="0" r="${r}" fill="${sc.fill}" stroke="${sc.stroke}" stroke-width="1.6"/></svg>`;
+  return L.divIcon({ className: 'airport-marker', html: svg, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+}
+
+function makeAirportTooltipHtml(a) {
+  const fr = currentLang === 'fr';
+  const code = a.code || a.ident || '';
+  const lignes = [];
+  if (Number.isFinite(a.elevation_ft)) {
+    lignes.push(`<div class="ap-tt-rwy">${fr ? 'Altitude' : 'Elevation'} : ${a.elevation_ft} ft</div>`);
+  }
+  if (a.runway) {
+    const r = a.runway;
+    // Numéros de piste (le_ident/he_ident, ex. « 08/26 »).
+    lignes.push(`<div class="ap-tt-rwy">${fr ? 'Piste' : 'Runway'} ${escapeHtml(r.name)}</div>`);
+    if (Number.isFinite(r.length_ft)) {
+      const ft = Math.round(r.length_ft);
+      const m = Math.round(ft * 0.3048);
+      lignes.push(`<div class="ap-tt-rwy">${fr ? 'Longueur' : 'Length'} : ${ft} ft / ${m} m</div>`);
+    }
+    if (r.surface) {
+      lignes.push(`<div class="ap-tt-rwy">${fr ? 'Surface' : 'Surface'} : ${escapeHtml(r.surface)}</div>`);
+    }
+  }
+  return `<div class="ap-tt-icao">${escapeHtml(code)}</div><div class="ap-tt-name">${escapeHtml(a.name)}</div>${lignes.join('')}`;
+}
+
+function formatNavaidFreq(type, freqKhz) {
+  if (!freqKhz || !Number.isFinite(freqKhz) || freqKhz <= 0) return '—';
+  if (type === 'NDB' || type === 'NDB-DME') return Math.round(freqKhz) + ' kHz';
+  return (freqKhz / 1000).toFixed(2) + ' MHz';
+}
+
+function makeNavaidIcon(navaid) {
+  const C = '#1565c0', size = 22, sw = 1.6;
+  const hexPts = '-7,4 -7,-4 0,-8 7,-4 7,4 0,8';
+  const hexInsidePts = '-5,2.9 -5,-2.9 0,-5.8 5,-2.9 5,2.9 0,5.8';
+  let inner = '';
+  switch (navaid.type) {
+    case 'VOR':
+      inner = `<polygon points="${hexPts}" fill="#fff" stroke="${C}" stroke-width="${sw}"/><circle cx="0" cy="0" r="1.6" fill="${C}"/>`; break;
+    case 'VOR-DME':
+      inner = `<rect x="-9" y="-9" width="18" height="18" fill="#fff" stroke="${C}" stroke-width="${sw}"/><polygon points="${hexInsidePts}" fill="#fff" stroke="${C}" stroke-width="1.3"/><circle cx="0" cy="0" r="1.4" fill="${C}"/>`; break;
+    case 'VORTAC':
+      inner = `<rect x="-2.6" y="-11" width="5.2" height="3" fill="${C}"/><rect x="-2.6" y="-1.5" width="5.2" height="3" fill="${C}" transform="rotate(120 0 0) translate(0 9.5)"/><rect x="-2.6" y="-1.5" width="5.2" height="3" fill="${C}" transform="rotate(-120 0 0) translate(0 9.5)"/><polygon points="${hexPts}" fill="#fff" stroke="${C}" stroke-width="${sw}"/><circle cx="0" cy="0" r="1.6" fill="${C}"/>`; break;
+    case 'TACAN':
+      inner = `<polygon points="0,-8 7,5 -7,5" fill="#fff" stroke="${C}" stroke-width="${sw}"/><circle cx="0" cy="1" r="1.4" fill="${C}"/>`; break;
+    case 'NDB':
+      inner = `<circle cx="0" cy="0" r="7" fill="#fff" stroke="${C}" stroke-width="1.5" stroke-dasharray="1.8 1.8"/><circle cx="0" cy="0" r="1.8" fill="${C}"/>`; break;
+    case 'NDB-DME':
+      inner = `<rect x="-9" y="-9" width="18" height="18" fill="#fff" stroke="${C}" stroke-width="${sw}"/><circle cx="0" cy="0" r="5.5" fill="#fff" stroke="${C}" stroke-width="1.4" stroke-dasharray="1.6 1.6"/><circle cx="0" cy="0" r="1.6" fill="${C}"/>`; break;
+    default: // DME
+      inner = `<rect x="-7" y="-7" width="14" height="14" fill="#fff" stroke="${C}" stroke-width="${sw}"/><text x="0" y="3.5" text-anchor="middle" fill="${C}" font-size="8" font-weight="bold" font-family="Arial, sans-serif">D</text>`; break;
+  }
+  const svg = `<svg viewBox="-12 -12 24 24" width="${size}" height="${size}" style="overflow:visible;">${inner}</svg>`;
+  return L.divIcon({ className: 'navaid-marker', html: svg, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+}
+
+function makeNavaidTooltipHtml(n) {
+  const freq = formatNavaidFreq(n.type, n.freqKhz);
+  const range = Number.isFinite(n.rangeNm) ? `<div class="nv-tt-range">${n.rangeNm} NM</div>` : '';
+  return `<div class="nv-tt-ident">${escapeHtml(n.ident)}</div><div class="nv-tt-type">${escapeHtml(n.type)}</div><div class="nv-tt-freq">${freq}</div>${range}`;
+}
+
+function planifierRafraichirCouches() {
+  if (_couchesTimer) clearTimeout(_couchesTimer);
+  _couchesTimer = setTimeout(rafraichirCouches, 200);
+}
+
+function rafraichirCouches() {
+  rafraichirAeroports();
+  rafraichirNavaids();
+}
+
+async function rafraichirAeroports() {
+  if (!map) return;
+  if (!layerState.airports && !layerState.heliports && !layerState.seaplanes) {
+    airportsLayer.clearLayers(); heliportsLayer.clearLayers(); seaplanesLayer.clearLayers(); return;
+  }
+  if (map.getZoom() < ZOOM_MIN_COUCHES) {
+    airportsLayer.clearLayers(); heliportsLayer.clearLayers(); seaplanesLayer.clearLayers(); return;
+  }
+  const b = map.getBounds();
+  const bbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  const reqId = ++_airReqId;
+  let res;
+  try { res = await window.bc.aeroportsDansBbox(bbox); } catch (_) { return; }
+  if (reqId !== _airReqId) return;
+  airportsLayer.clearLayers(); heliportsLayer.clearLayers(); seaplanesLayer.clearLayers();
+  if (!res || !res.ok) return;
+  for (const a of res.airports) {
+    const isHeli = a.type === 'heliport', isSea = a.type === 'seaplane_base';
+    const enabled = isHeli ? layerState.heliports : isSea ? layerState.seaplanes : layerState.airports;
+    if (!enabled) continue;
+    const marker = L.marker([a.lat, lonVersVue(a.lon, bbox.west)], { icon: makeAirportIcon(a), interactive: true, keyboard: false });
+    marker.bindTooltip(makeAirportTooltipHtml(a), { direction: 'top', offset: [0, -8], className: 'airport-tooltip', opacity: 1 });
+    marker.addTo(isHeli ? heliportsLayer : isSea ? seaplanesLayer : airportsLayer);
+  }
+}
+
+async function rafraichirNavaids() {
+  if (!map) return;
+  if (!layerState.navaids) { navaidsLayer.clearLayers(); return; }
+  if (map.getZoom() < ZOOM_MIN_COUCHES) { navaidsLayer.clearLayers(); return; }
+  const b = map.getBounds();
+  const bbox = { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  const reqId = ++_navReqId;
+  let res;
+  try { res = await window.bc.navaidsDansBbox(bbox); } catch (_) { return; }
+  if (reqId !== _navReqId) return;
+  navaidsLayer.clearLayers();
+  if (!res || !res.ok) return;
+  for (const n of res.navaids) {
+    const marker = L.marker([n.lat, lonVersVue(n.lon, bbox.west)], { icon: makeNavaidIcon(n), interactive: true, keyboard: false });
+    marker.bindTooltip(makeNavaidTooltipHtml(n), { direction: 'top', offset: [0, -8], className: 'navaid-tooltip', opacity: 1 });
+    marker.addTo(navaidsLayer);
+  }
+}
+
+// Contrôles déroulants (haut-droite) : couches MSFS + fond de carte, côte à côte.
+function ajouterControlesCarte() {
+  const ctl = L.control({ position: 'topright' });
+  ctl.onAdd = function () {
+    const div = L.DomUtil.create('div', 'map-controls');
+    div.innerHTML =
+      // Widget 1 — couches (cases à cocher)
+      `<div class="map-dropdown" id="ctl-couches">` +
+        `<button class="map-dd-btn" type="button" data-i18n-title="layersTitle" title="${t('layersTitle')}" aria-haspopup="true" aria-expanded="false"><i class="ph-light ph-stack"></i></button>` +
+        `<div class="map-dd-panel" hidden>` +
+          `<label><input type="checkbox" data-layer="airports"> <span data-i18n="layerAirports">${t('layerAirports')}</span></label>` +
+          `<label><input type="checkbox" data-layer="heliports"> <span data-i18n="layerHeliports">${t('layerHeliports')}</span></label>` +
+          `<label><input type="checkbox" data-layer="seaplanes"> <span data-i18n="layerSeaplanes">${t('layerSeaplanes')}</span></label>` +
+          `<label><input type="checkbox" data-layer="navaids"> <span data-i18n="layerNavaids">${t('layerNavaids')}</span></label>` +
+        `</div>` +
+      `</div>` +
+      // Widget 2 — fond de carte (boutons radio)
+      `<div class="map-dropdown" id="ctl-fond">` +
+        `<button class="map-dd-btn" type="button" data-i18n-title="basemapTitle" title="${t('basemapTitle')}" aria-haspopup="true" aria-expanded="false"><i class="ph-light ph-map-trifold"></i></button>` +
+        `<div class="map-dd-panel" hidden>` +
+          `<label><input type="radio" name="basemap" data-base="opentopomap"> OpenTopoMap</label>` +
+          `<label><input type="radio" name="basemap" data-base="openstreetmap"> OpenStreetMap</label>` +
+        `</div>` +
+      `</div>`;
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+
+    // Ouverture/fermeture des deux menus (un seul ouvert à la fois)
+    const dropdowns = [...div.querySelectorAll('.map-dropdown')];
+    dropdowns.forEach((dd) => {
+      const btn = dd.querySelector('.map-dd-btn');
+      const panel = dd.querySelector('.map-dd-panel');
+      btn.addEventListener('click', () => {
+        const open = panel.hidden;
+        dropdowns.forEach((o) => { o.querySelector('.map-dd-panel').hidden = true; o.querySelector('.map-dd-btn').setAttribute('aria-expanded', 'false'); });
+        panel.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+      });
+    });
+
+    // Couches
+    div.querySelectorAll('input[data-layer]').forEach((cb) => {
+      cb.checked = !!layerState[cb.dataset.layer];
+      cb.addEventListener('change', () => {
+        layerState[cb.dataset.layer] = cb.checked;
+        localStorage.setItem('bc-layer-' + cb.dataset.layer, cb.checked ? '1' : '0');
+        rafraichirCouches();
+      });
+    });
+
+    // Fond de carte
+    const fondActuel = localStorage.getItem('bc-basemap') || 'opentopomap';
+    div.querySelectorAll('input[data-base]').forEach((rb) => {
+      rb.checked = (rb.dataset.base === fondActuel);
+      rb.addEventListener('change', () => { if (rb.checked) appliquerFond(rb.dataset.base); });
+    });
+    return div;
+  };
+  ctl.addTo(map);
+}
+
+// Oriente l'image de l'avion selon le cap (degrés, sens horaire = nord 0°).
+// On accumule une rotation NON bornée : à chaque image on n'ajoute que le plus
+// court écart angulaire (±180°), pour que la transition CSS tourne toujours du
+// bon côté et ne fasse pas un tour complet au passage 359°↔0°.
+function orienterAvion(capDeg) {
+  if (!planeMarker) return;
+  const el = planeMarker.getElement();
+  const img = el && el.firstElementChild;
+  if (!img) return;
+  const cap = Number.isFinite(capDeg) ? capDeg : 0;
+  if (capPrecedent === null) {
+    rotationAvion = cap;
+  } else {
+    let delta = cap - capPrecedent;
+    delta = ((delta + 180) % 360 + 360) % 360 - 180;   // ramène à (-180°, +180°]
+    rotationAvion += delta;
+  }
+  capPrecedent = cap;
+  img.style.transform = `rotate(${rotationAvion}deg)`;
 }
 
 function majCarte(f) {
@@ -78,18 +421,57 @@ function majCarte(f) {
       || !isFinite(f.lat) || !isFinite(f.lon)) return;
   const ll = [f.lat, f.lon];
   if (!planeMarker) {
-    planeMarker = L.marker(ll).addTo(map);
+    planeMarker = L.marker(ll, { icon: planeIcon }).addTo(map);
+    capPrecedent = null;   // nouveau marqueur → repart d'une orientation absolue
     map.setView(ll, 13);   // premier point : on cadre sur l'avion
   } else {
     planeMarker.setLatLng(ll);
-    if (suivreAvion) map.panTo(ll);
+    if (suiviActif && !suiviPause) map.panTo(ll);   // recentre (zoom inchangé)
   }
+  // Tracé continu magenta, 3 px, qui suit l'avion.
+  if (!planeTrack) {
+    planeTrack = L.polyline([ll], { color: '#ff00ff', weight: 3 }).addTo(map);
+  } else {
+    planeTrack.addLatLng(ll);
+  }
+  orienterAvion(f.headingMag);
+}
+
+// Indicateur de vent. Le TEXTE donne la direction d'où vient le vent, en
+// MAGNÉTIQUE : la variation locale est dérivée des deux caps avion
+// (mag = vrai + magvar, donc magvar = headingMag − headingTrue). La FLÈCHE,
+// elle, reste orientée en VRAI (la carte est nord-vrai) et pointe vers où VA
+// le vent (= direction d'où il vient + 180°).
+// Rafraîchi au plus toutes les 5 s (le flux scan arrive ~2×/s).
+let _ventLastUpdate = 0;
+const VENT_THROTTLE_MS = 5000;
+function majVent(f) {
+  const ind = $('wind-indicator');
+  if (!Number.isFinite(f.windDir) || !Number.isFinite(f.windKt)) { ind.hidden = true; _ventLastUpdate = 0; return; }
+  const now = Date.now();
+  if (_ventLastUpdate && now - _ventLastUpdate < VENT_THROTTLE_MS) return;
+  _ventLastUpdate = now;
+  const norm360 = (x) => ((Math.round(x) % 360) + 360) % 360;
+  const norm180 = (x) => { const v = ((x % 360) + 360) % 360; return v > 180 ? v - 360 : v; };
+  const magvar = (Number.isFinite(f.headingTrue) && Number.isFinite(f.headingMag))
+    ? norm180(f.headingMag - f.headingTrue) : 0;
+  const dirTrue = norm360(f.windDir);
+  const dirMag = norm360(f.windDir + magvar);
+  $('wind-text').textContent = `${String(dirMag).padStart(3, '0')}° ${Math.round(f.windKt)} kt`;
+  $('wind-arrow').style.transform = `rotate(${dirTrue + 180}deg)`;
+  ind.hidden = false;
 }
 
 function viderScan() {
   ['b-lat','b-lon','b-amsl'].forEach((id) => { $(id).textContent = '—'; });
   if (map && planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
-  suivreAvion = true;
+  if (map && planeTrack) { map.removeLayer(planeTrack); planeTrack = null; }
+  $('wind-indicator').hidden = true;
+  _ventLastUpdate = 0;
+  suiviPause = false;
+  if (_suiviTimer) { clearTimeout(_suiviTimer); _suiviTimer = null; }
+  capPrecedent = null;
+  rotationAvion = 0;
 }
 
 function majScan(f) {
@@ -97,6 +479,7 @@ function majScan(f) {
   $('b-lon').textContent = fmt(f.lon, 5);
   $('b-amsl').textContent = fmt(f.amslFt);
   majCarte(f);
+  majVent(f);
 }
 
 // --- Câblage ---
@@ -302,6 +685,278 @@ $('queue-badge').addEventListener('click', async () => {
     b.classList.remove('is-busy');
   }
 });
+
+// ============================================================
+// Import des aéroports MSFS 2024 (même processus que NavXpressVFR).
+// ============================================================
+let _msfsChecking = false;
+let _msfsExtracting = false;
+let _msfsUnsubProgress = null;
+
+function fmtMsDuration(ms) {
+  const s = Math.max(0, Math.round((ms || 0) / 1000));
+  const m = Math.floor(s / 60);
+  return `${m}m${String(s % 60).padStart(2, '0')}s`;
+}
+
+function openMsfsConfirm() {
+  const st = $('msfs-check-status');
+  st.hidden = true; st.className = 'modal-status';
+  $('btn-msfs-confirm-ok').disabled = false;
+  $('btn-msfs-confirm-cancel').disabled = false;
+  $('msfs-confirm-overlay').hidden = false;
+}
+function closeMsfsConfirm() {
+  if (_msfsChecking) return;   // pas de fermeture pendant la vérification
+  $('msfs-confirm-overlay').hidden = true;
+}
+
+function openMsfsProgress() {
+  $('msfs-progress-bar-fill').style.width = '0%';
+  $('msfs-progress-count').textContent = '0 / 0';
+  $('msfs-progress-stats').textContent = '';
+  const sum = $('msfs-progress-summary');
+  sum.hidden = true; sum.className = 'modal-status';
+  $('msfs-progress-phase').textContent = t('msfsPhaseConnecting');
+  $('btn-msfs-progress-close').disabled = true;
+  $('msfs-progress-overlay').hidden = false;
+}
+function closeMsfsProgress() {
+  if (_msfsExtracting) return;   // pas de fermeture pendant l'extraction
+  $('msfs-progress-overlay').hidden = true;
+}
+
+function setMsfsBar(pct) {
+  $('msfs-progress-bar-fill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+function handleMsfsProgress(p) {
+  if (!p) return;
+  if (p.phase === 'connect' || p.phase === 'connected') {
+    $('msfs-progress-phase').textContent = t('msfsPhaseConnecting');
+  } else if (p.phase === 'enumerate') {
+    $('msfs-progress-phase').textContent = t('msfsPhaseEnumerate').replace('{n}', p.enumerated);
+    if (p.totalPackets) setMsfsBar(Math.round((p.packet / p.totalPackets) * 100));
+    $('msfs-progress-count').textContent = String(p.enumerated);
+  } else if (p.phase === 'detail') {
+    $('msfs-progress-phase').textContent = p.retry ? t('msfsPhaseRetry') : t('msfsPhaseDetail');
+    if (p.target > 0) setMsfsBar(Math.round((p.treated / p.target) * 100));
+    $('msfs-progress-count').textContent = `${p.treated} / ${p.target}`;
+    $('msfs-progress-stats').textContent = t('msfsProgressStats')
+      .replace('{rate}', Math.round(p.ratePerSec || 0))
+      .replace('{eta}', fmtMsDuration(p.etaMs))
+      .replace('{ok}', p.ok)
+      .replace('{failed}', p.failed);
+  } else if (p.phase === 'done') {
+    setMsfsBar(100);
+    $('msfs-progress-count').textContent = `${p.written} / ${p.enumerated}`;
+  }
+}
+
+async function startMsfsExtraction() {
+  if (_msfsExtracting) return;
+  _msfsChecking = false;
+  $('msfs-confirm-overlay').hidden = true;
+  openMsfsProgress();
+
+  _msfsExtracting = true;
+  if (_msfsUnsubProgress) { try { _msfsUnsubProgress(); } catch (_) {} _msfsUnsubProgress = null; }
+  _msfsUnsubProgress = window.bc.onMsfsExtractProgress(handleMsfsProgress);
+
+  let result;
+  try {
+    result = await window.bc.msfsExtraireAeroports({ limit: 0 });
+  } catch (err) {
+    result = { ok: false, error: (err && err.message) || String(err) };
+  }
+
+  _msfsExtracting = false;
+  if (_msfsUnsubProgress) { try { _msfsUnsubProgress(); } catch (_) {} _msfsUnsubProgress = null; }
+  $('btn-msfs-progress-close').disabled = false;
+
+  const sum = $('msfs-progress-summary');
+  sum.hidden = false;
+  if (result && result.ok && result.summary && result.summary.file) {
+    sum.className = 'modal-status is-ok';
+    sum.textContent = t('msfsExtractDone').replace('{n}', result.summary.written);
+  } else if (result && result.ok && result.summary) {
+    sum.className = 'modal-status is-warn';
+    sum.textContent = t('msfsExtractEmpty');
+  } else {
+    sum.className = 'modal-status is-error';
+    sum.textContent = t('msfsExtractError').replace('{msg}', (result && result.error) || '?');
+  }
+}
+
+$('btn-msfs-confirm-cancel').addEventListener('click', closeMsfsConfirm);
+$('btn-msfs-progress-close').addEventListener('click', closeMsfsProgress);
+$('btn-msfs-confirm-ok').addEventListener('click', async () => {
+  if (_msfsChecking) return;
+  _msfsChecking = true;
+  $('btn-msfs-confirm-ok').disabled = true;
+  $('btn-msfs-confirm-cancel').disabled = true;
+  const st = $('msfs-check-status');
+  st.hidden = false; st.className = 'modal-status'; st.textContent = t('msfsCheckChecking');
+
+  let res = { running: false };
+  try { res = await window.bc.msfsVerifierLancement(); }
+  catch (err) { res = { running: false, error: (err && err.message) || String(err) }; }
+
+  _msfsChecking = false;
+  $('btn-msfs-confirm-ok').disabled = false;
+  $('btn-msfs-confirm-cancel').disabled = false;
+
+  if (res && res.running) {
+    st.className = 'modal-status is-ok';
+    st.textContent = t('msfsCheckRunning').replace('{app}', res.app || 'MSFS');
+    startMsfsExtraction();   // MSFS détecté → on enchaîne
+  } else {
+    st.className = 'modal-status is-error';
+    st.textContent = t('msfsCheckNotRunning');
+  }
+});
+
+// ============================================================
+// Import des navaids MSFS 2024 (même processus que NavXpressVFR).
+// Réutilise la vérification de lancement MSFS et la phase « connexion ».
+// ============================================================
+let _navaidsChecking = false;
+let _navaidsExtracting = false;
+let _navaidsUnsubProgress = null;
+
+function openNavaidsConfirm() {
+  const st = $('navaids-check-status');
+  st.hidden = true; st.className = 'modal-status';
+  $('btn-navaids-confirm-ok').disabled = false;
+  $('btn-navaids-confirm-cancel').disabled = false;
+  $('navaids-confirm-overlay').hidden = false;
+}
+function closeNavaidsConfirm() {
+  if (_navaidsChecking) return;
+  $('navaids-confirm-overlay').hidden = true;
+}
+
+function openNavaidsProgress() {
+  $('navaids-progress-bar-fill').style.width = '0%';
+  $('navaids-progress-count').textContent = '0 / 0';
+  $('navaids-progress-stats').textContent = '';
+  const sum = $('navaids-progress-summary');
+  sum.hidden = true; sum.className = 'modal-status';
+  $('navaids-progress-phase').textContent = t('msfsPhaseConnecting');
+  $('btn-navaids-progress-close').disabled = true;
+  $('navaids-progress-overlay').hidden = false;
+}
+function closeNavaidsProgress() {
+  if (_navaidsExtracting) return;
+  $('navaids-progress-overlay').hidden = true;
+}
+
+function setNavaidsBar(pct) {
+  $('navaids-progress-bar-fill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+function handleNavaidsProgress(p) {
+  if (!p) return;
+  if (p.phase === 'connect' || p.phase === 'connected') {
+    $('navaids-progress-phase').textContent = t('msfsPhaseConnecting');
+  } else if (p.phase === 'enumerate') {
+    $('navaids-progress-phase').textContent = t('navaidsPhaseEnumerate').replace('{n}', p.enumerated);
+    if (p.total) setNavaidsBar(Math.round((p.packet / p.total) * 100));
+    $('navaids-progress-count').textContent = String(p.enumerated);
+  } else if (['seed', 'bfs', 'vor', 'ndb', 'disco'].includes(p.phase)) {
+    const label = { seed: 'navaidsPhaseSeed', bfs: 'navaidsPhaseBfs', vor: 'navaidsPhaseVor', ndb: 'navaidsPhaseNdb', disco: 'navaidsPhaseDisco' }[p.phase];
+    $('navaids-progress-phase').textContent = t(label);
+    if (p.target > 0) setNavaidsBar(Math.round((p.treated / p.target) * 100));
+    $('navaids-progress-count').textContent = `${p.treated} / ${p.target}`;
+    $('navaids-progress-stats').textContent = t('navaidsProgressStats')
+      .replace('{nav}', p.navaids || 0)
+      .replace('{wpt}', p.seeds || 0);
+  } else if (p.phase === 'done') {
+    setNavaidsBar(100);
+  }
+}
+
+async function startNavaidsExtraction() {
+  if (_navaidsExtracting) return;
+  _navaidsChecking = false;
+  $('navaids-confirm-overlay').hidden = true;
+  openNavaidsProgress();
+
+  _navaidsExtracting = true;
+  if (_navaidsUnsubProgress) { try { _navaidsUnsubProgress(); } catch (_) {} _navaidsUnsubProgress = null; }
+  _navaidsUnsubProgress = window.bc.onMsfsNavaidsProgress(handleNavaidsProgress);
+
+  let result;
+  try {
+    result = await window.bc.msfsExtraireNavaids();
+  } catch (err) {
+    result = { ok: false, error: (err && err.message) || String(err) };
+  }
+
+  _navaidsExtracting = false;
+  if (_navaidsUnsubProgress) { try { _navaidsUnsubProgress(); } catch (_) {} _navaidsUnsubProgress = null; }
+  $('btn-navaids-progress-close').disabled = false;
+
+  const sum = $('navaids-progress-summary');
+  sum.hidden = false;
+  if (result && result.ok && result.summary && result.summary.file) {
+    sum.className = 'modal-status is-ok';
+    sum.textContent = t('navaidsExtractDone').replace('{n}', result.summary.navaids);
+  } else if (result && result.ok && result.summary) {
+    sum.className = 'modal-status is-warn';
+    sum.textContent = t('navaidsExtractEmpty');
+  } else {
+    sum.className = 'modal-status is-error';
+    sum.textContent = t('navaidsExtractError').replace('{msg}', (result && result.error) || '?');
+  }
+}
+
+$('btn-navaids-confirm-cancel').addEventListener('click', closeNavaidsConfirm);
+$('btn-navaids-progress-close').addEventListener('click', closeNavaidsProgress);
+$('btn-navaids-confirm-ok').addEventListener('click', async () => {
+  if (_navaidsChecking) return;
+  _navaidsChecking = true;
+  $('btn-navaids-confirm-ok').disabled = true;
+  $('btn-navaids-confirm-cancel').disabled = true;
+  const st = $('navaids-check-status');
+  st.hidden = false; st.className = 'modal-status'; st.textContent = t('msfsCheckChecking');
+
+  let res = { running: false };
+  try { res = await window.bc.msfsVerifierLancement(); }
+  catch (err) { res = { running: false, error: (err && err.message) || String(err) }; }
+
+  _navaidsChecking = false;
+  $('btn-navaids-confirm-ok').disabled = false;
+  $('btn-navaids-confirm-cancel').disabled = false;
+
+  if (res && res.running) {
+    st.className = 'modal-status is-ok';
+    st.textContent = t('msfsCheckRunning').replace('{app}', res.app || 'MSFS');
+    startNavaidsExtraction();
+  } else {
+    st.className = 'modal-status is-error';
+    st.textContent = t('msfsCheckNotRunning');
+  }
+});
+
+// --- Bouton-icône d'import + menu déroulant (aéroports / navaids) ---
+const importBtn = $('btn-import');
+const importDropdown = $('import-dropdown');
+function fermerImportMenu() {
+  importDropdown.hidden = true;
+  importBtn.setAttribute('aria-expanded', 'false');
+}
+importBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const ouvrir = importDropdown.hidden;
+  importDropdown.hidden = !ouvrir;
+  importBtn.setAttribute('aria-expanded', String(ouvrir));
+});
+importDropdown.addEventListener('click', (e) => e.stopPropagation());   // clic dans le menu ne le ferme pas
+document.addEventListener('click', () => { if (!importDropdown.hidden) fermerImportMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerImportMenu(); });
+$('menu-import-airports').addEventListener('click', () => { fermerImportMenu(); openMsfsConfirm(); });
+$('menu-import-navaids').addEventListener('click', () => { fermerImportMenu(); openNavaidsConfirm(); });
 
 // Initialisation : applique la langue courante, puis l'état initial.
 initI18n();

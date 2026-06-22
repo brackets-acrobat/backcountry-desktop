@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data: https://*.tile.opentopomap.org;">
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data: https://*.tile.opentopomap.org https://*.tile.openstreetmap.org;">
   <title>Backcountry Pathfinders</title>
   <!-- Icônes Phosphor Light + Leaflet vendorés en local (CSP stricte, app hors-ligne) -->
   <link rel="stylesheet" href="vendor/phosphor/style.css">
@@ -19,6 +19,16 @@
       <button id="btn-capture" class="btn btn-accent" disabled>
         <i class="ph-light ph-camera"></i> <span data-i18n="btnCapture">Capture d'écran</span>
       </button>
+      <!-- Import MSFS 2024 : bouton-icône + menu déroulant (aéroports / navaids) -->
+      <div class="import-menu">
+        <button id="btn-import" class="btn btn-icon" data-i18n-title="btnImport" title="Importer" aria-haspopup="true" aria-expanded="false">
+          <i class="ph-light ph-download-simple"></i>
+        </button>
+        <div id="import-dropdown" class="dropdown" hidden>
+          <button id="menu-import-airports" class="dropdown-item"><span data-i18n="menuImportAirports">Aéroports MSFS2024</span></button>
+          <button id="menu-import-navaids" class="dropdown-item"><span data-i18n="menuImportNavaids">Navaids MSFS2024</span></button>
+        </div>
+      </div>
     </div>
     <div class="conn">
       <button id="btn-connect" class="btn btn-state-off"><i class="ph-light ph-plugs"></i> Connecter MSFS2024</button>
@@ -43,6 +53,11 @@
   <main>
     <!-- Carte (fond OpenTopoMap), suit l'avion quand SimConnect est connecté -->
     <div id="map"></div>
+    <!-- Indicateur de vent (centré, même ligne que les menus déroulants de la carte) -->
+    <div id="wind-indicator" class="wind-indicator" hidden>
+      <i class="ph-light ph-arrow-fat-up wind-arrow" id="wind-arrow"></i>
+      <span class="wind-text" id="wind-text">—</span>
+    </div>
   </main>
 
   <!-- Barre d'état : indice de configuration de l'API -->
@@ -63,6 +78,62 @@
       <div class="modal-actions">
         <button id="btn-apikey-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
         <button id="btn-apikey-save" class="btn btn-accent"><i class="ph-light ph-floppy-disk"></i> <span data-i18n="btnSaveKey">Enregistrer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation import aéroports MSFS 2024 -->
+  <div id="msfs-confirm-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-download-simple"></i> <span data-i18n="msfsImportTitle">Importer les aéroports MSFS 2024</span></h3>
+      <p class="modal-text" data-i18n="msfsImportIntro">Extrait toute la base d'aéroports de MSFS 2024 via SimConnect. MSFS 2024 doit être lancé avec un vol en cours. L'opération peut durer plusieurs minutes.</p>
+      <p id="msfs-check-status" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-msfs-confirm-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-msfs-confirm-ok" class="btn btn-accent"><i class="ph-light ph-download-simple"></i> <span data-i18n="btnImport">Importer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : progression de l'extraction des aéroports MSFS 2024 -->
+  <div id="msfs-progress-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-download-simple"></i> <span data-i18n="msfsProgressTitle">Extraction des aéroports MSFS 2024</span></h3>
+      <p id="msfs-progress-phase" class="modal-text">…</p>
+      <div class="progress-bar"><div id="msfs-progress-bar-fill" class="progress-bar-fill"></div></div>
+      <p id="msfs-progress-count" class="progress-count">0 / 0</p>
+      <p id="msfs-progress-stats" class="progress-stats"></p>
+      <p id="msfs-progress-summary" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-msfs-progress-close" class="btn" disabled><span data-i18n="btnClose">Fermer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation import navaids MSFS 2024 -->
+  <div id="navaids-confirm-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-broadcast"></i> <span data-i18n="navaidsImportTitle">Importer les navaids MSFS 2024</span></h3>
+      <p class="modal-text" data-i18n="navaidsImportIntro">Reconstruit la base mondiale de navaids (VOR/NDB) de MSFS 2024 par traversance du réseau d'airways. MSFS 2024 doit être lancé avec un vol en cours. L'opération peut durer plusieurs minutes.</p>
+      <p id="navaids-check-status" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-navaids-confirm-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-navaids-confirm-ok" class="btn btn-accent"><i class="ph-light ph-broadcast"></i> <span data-i18n="btnImport">Importer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : progression de l'extraction des navaids MSFS 2024 -->
+  <div id="navaids-progress-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-broadcast"></i> <span data-i18n="navaidsProgressTitle">Extraction des navaids MSFS 2024</span></h3>
+      <p id="navaids-progress-phase" class="modal-text">…</p>
+      <div class="progress-bar"><div id="navaids-progress-bar-fill" class="progress-bar-fill"></div></div>
+      <p id="navaids-progress-count" class="progress-count">0 / 0</p>
+      <p id="navaids-progress-stats" class="progress-stats"></p>
+      <p id="navaids-progress-summary" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-navaids-progress-close" class="btn" disabled><span data-i18n="btnClose">Fermer</span></button>
       </div>
     </div>
   </div>

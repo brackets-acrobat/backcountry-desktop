@@ -28,6 +28,19 @@ contextBridge.exposeInMainWorld('bc', {
   etatFile:     () => ipcRenderer.invoke('queue-status'),
   relancerFile: () => ipcRenderer.invoke('queue-flush'),
 
+  // Import des aéroports MSFS 2024
+  msfsVerifierLancement: () => ipcRenderer.invoke('msfs-verifier-lancement'),
+  msfsExtraireAeroports: (options) => ipcRenderer.invoke('extraire-aeroports-msfs', options),
+  onMsfsExtractProgress: (cb) => subscribe('msfs-extract-progress', cb),
+
+  // Import des navaids MSFS 2024
+  msfsExtraireNavaids: () => ipcRenderer.invoke('extraire-navaids-msfs'),
+  onMsfsNavaidsProgress: (cb) => subscribe('msfs-navaids-progress', cb),
+
+  // Données carte (par bounding box)
+  aeroportsDansBbox: (bbox) => ipcRenderer.invoke('aeroports-bbox', bbox),
+  navaidsDansBbox: (bbox) => ipcRenderer.invoke('navaids-bbox', bbox),
+
   // Abonnements (main → renderer). Chaque appel renvoie une fonction de désabonnement.
   onConfig:          (cb) => subscribe('app-config', cb),
   onStatus:          (cb) => subscribe('sc-status', cb),

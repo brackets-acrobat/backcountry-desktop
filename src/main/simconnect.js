@@ -36,7 +36,7 @@ const {
 const SC_SCAN_DEF_ID = 1;
 const SC_SCAN_REQ_ID = 1;
 
-const UI_THROTTLE_MS = 1000; // cadence d'émission vers le renderer (UI)
+const UI_THROTTLE_MS = 500; // cadence d'émission vers le renderer (UI)
 
 // Enum MSFS SURFACE TYPE → libellé. « Mud » n'existe pas (assimilé à Dirt).
 const SURFACE_TYPES = [
@@ -112,6 +112,9 @@ class SimConnectClient extends EventEmitter {
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'SURFACE CONDITION',         'Enum',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GROUND VELOCITY',           'knots',   SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'PLANE HEADING DEGREES TRUE', 'degrees', SCDataType.FLOAT64);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'PLANE HEADING DEGREES MAGNETIC', 'degrees', SCDataType.FLOAT64);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'AMBIENT WIND DIRECTION',    'degrees', SCDataType.FLOAT64); // d'où vient le vent (vrai)
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'AMBIENT WIND VELOCITY',     'knots',   SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'SIM ON GROUND',             'Bool',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'BRAKE PARKING POSITION',    'Bool',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GENERAL ENG COMBUSTION:1',  'Bool',    SCDataType.INT32);
@@ -142,6 +145,9 @@ class SimConnectClient extends EventEmitter {
         const surfaceCond  = data.data.readInt32();
         const groundSpeedKt = data.data.readFloat64();
         const headingTrue  = data.data.readFloat64();
+        const headingMag   = data.data.readFloat64();
+        const windDir      = data.data.readFloat64();   // d'où vient le vent (cap vrai)
+        const windKt       = data.data.readFloat64();
         const onGround     = data.data.readInt32() !== 0;
         const parkingBrake = data.data.readInt32() !== 0;
         const eng1         = data.data.readInt32() !== 0;
@@ -156,7 +162,7 @@ class SimConnectClient extends EventEmitter {
           lat, lon, amslFt, aglFt, groundAltFt,
           surfaceType, surfaceTypeLabel: libelleSurface(surfaceType),
           surfaceCond, surfaceCondLabel: libelleCondition(surfaceCond),
-          groundSpeedKt, headingTrue, onGround, parkingBrake,
+          groundSpeedKt, headingTrue, headingMag, windDir, windKt, onGround, parkingBrake,
           engineOn: eng1 || eng2,
           aircraftTitle,
           simLocal: buildSimLocal(localYear, localMonth, localDay, localTime),

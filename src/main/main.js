@@ -15,8 +15,12 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { open: scOpen, Protocol: SCProtocol } = require('node-simconnect');
 
 const { chargerConfig, enregistrerCle, dossierBase } = require('./config');
+const { runExtraction: runMsfsExtraction } = require('./extract-airports-msfs');
+const { runExtraction: runNavaidsExtraction } = require('./extract-navaids-msfs');
+const airportsData = require('./airports-data');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
 const { envoyer } = require('./api-client');
@@ -185,6 +189,93 @@ ipcMain.handle('queue-flush', async () => {
   await flushQueue();   // émet déjà queue-status au renderer (broadcastQueue)
   return { restants: compter(dossiers().queue), cleConfiguree: config._cleConfiguree };
 });
+
+// --- Import des aéroports MSFS 2024 (repris de NavXpressVFR) ---
+// Vérifie que MSFS 2024 répond : ouvre une connexion SunRise éphémère (≠ la
+// connexion de scan en FSX_SP2) et la referme aussitôt.
+ipcMain.handle('msfs-verifier-lancement', async () => {
+  return await new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+      resolve(result);
+    };
+    timer = setTimeout(() => done({ running: false, error: 'timeout (aucune réponse du simulateur en 8 s)' }), 8000);
+
+    let openP;
+    try {
+      openP = scOpen('BackcountryPathfinders-Check', SCProtocol.SunRise);
+    } catch (err) {
+      done({ running: false, error: 'scOpen a échoué : ' + (err && err.message) });
+      return;
+    }
+    openP.then((res) => {
+      try { res.handle.close(); } catch (_) {}
+      done({ running: true, app: (res.recvOpen && res.recvOpen.applicationName) || 'MSFS' });
+    }).catch((err) => {
+      done({ running: false, error: (err && err.message) || 'connexion refusée' });
+    });
+  });
+});
+
+// Extraction in-app : ouvre sa propre connexion SunRise dédiée, énumère puis lit
+// en détail tous les aéroports, écrit Documents/Backcountry Pathfinders/data/
+// airports-msfs.jsonl, et relaie la progression au renderer via 'msfs-extract-progress'.
+let _msfsExtractRunning = false;
+ipcMain.handle('extraire-aeroports-msfs', async (event, options) => {
+  if (_msfsExtractRunning) return { ok: false, error: 'Une extraction est déjà en cours.' };
+  _msfsExtractRunning = true;
+  const wc = event.sender;
+  const outDir = path.join(dossierBase(), 'data');
+  const limit = options && Number.isFinite(options.limit) ? options.limit : 0;
+
+  const sendProgress = (p) => { if (wc && !wc.isDestroyed()) wc.send('msfs-extract-progress', p); };
+
+  try {
+    const summary = await runMsfsExtraction({
+      outDir,
+      window: 100,
+      limit,
+      appName: 'BackcountryPathfinders-Extract',
+      onProgress: sendProgress,
+    });
+    if (summary && summary.file) airportsData.reload();   // recharge la base fraîche
+    return { ok: true, summary };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'extraction échouée' };
+  } finally {
+    _msfsExtractRunning = false;
+  }
+});
+
+// Extraction des NAVAIDS MSFS 2024 (VOR/NDB) — méthode traversance airways (repris
+// de NavXpressVFR). Produit navaids.jsonl, progression via 'msfs-navaids-progress'.
+let _navaidsExtractRunning = false;
+ipcMain.handle('extraire-navaids-msfs', async (event) => {
+  if (_navaidsExtractRunning) return { ok: false, error: 'Une extraction est déjà en cours.' };
+  _navaidsExtractRunning = true;
+  const wc = event.sender;
+  const outDir = path.join(dossierBase(), 'data');
+
+  const sendProgress = (p) => { if (wc && !wc.isDestroyed()) wc.send('msfs-navaids-progress', p); };
+
+  try {
+    const summary = await runNavaidsExtraction({ outDir, window: 80, onProgress: sendProgress });
+    if (summary && summary.file) airportsData.reload();
+    return { ok: true, summary };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || 'extraction échouée' };
+  } finally {
+    _navaidsExtractRunning = false;
+  }
+});
+
+// --- Données carte : aéroports / navaids par bounding box ---
+ipcMain.handle('aeroports-bbox', async (_e, bbox) => airportsData.aeroportsDansBbox(bbox));
+ipcMain.handle('navaids-bbox', async (_e, bbox) => airportsData.navaidsDansBbox(bbox));
 
 app.whenReady().then(() => {
   createWindow();

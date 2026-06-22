@@ -119,6 +119,48 @@ i[class^="ph-"], i[class*=" ph-"] {
 }
 .btn-accent { color: var(--accent); }
 
+/* Bouton-icône (import) : carré, icône 20px */
+.btn-icon { padding: .45rem .6rem; line-height: 0; }
+.btn-icon i[class^="ph-"] { font-size: 20px; }
+
+/* Menu déroulant d'import (aéroports / navaids) */
+.import-menu { position: relative; display: inline-flex; }
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1100;
+  min-width: 200px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.dropdown[hidden] { display: none; }   /* l'attribut hidden doit l'emporter sur display:flex */
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .5rem .7rem;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dropdown-item:hover,
+.dropdown-item:focus-visible {
+  background: var(--accent);
+  color: #0c1a0c;
+  outline: none;
+}
+
 /* --- Second bandeau : données live (lat / lon / altitude AMSL) --- */
 .subbar {
   display: flex;
@@ -148,14 +190,132 @@ i[class^="ph-"], i[class*=" ph-"] {
 }
 
 /* --- Contenu : la carte occupe tout l'espace restant --- */
-main { flex: 1; min-height: 0; padding: 0; }
+main { flex: 1; min-height: 0; padding: 0; position: relative; }
 #map { width: 100%; height: 100%; background: #0d0d0d; }
+
+/* Indicateur de vent : centré horizontalement, même ligne que les menus carte */
+.wind-indicator {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .4);
+  pointer-events: none;   /* ne bloque pas l'interaction carte */
+}
+.wind-indicator[hidden] { display: none; }   /* hidden l'emporte sur display:flex */
+.wind-arrow {
+  color: #e00 !important;   /* rouge (override de la règle globale ph- verte) */
+  font-size: 20px;
+  line-height: 1;
+  display: inline-block;
+  transition: transform .25s ease;
+}
+.wind-text { color: #000; font-weight: 700; font-size: 14px; white-space: nowrap; }
+/* Marqueur avion : image orientée selon le cap (rotation CSS), sans le
+   fond/bordure blancs par défaut des divIcon Leaflet. */
+.leaflet-div-icon.plane-marker { background: none; border: 0; }
+.plane-marker img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  transform-origin: 50% 50%;
+  transition: transform .2s linear;
+}
 /* Pavé d'attribution Leaflet adapté au thème sombre */
 .leaflet-control-attribution {
   background: rgba(18, 18, 18, .8) !important;
   color: var(--muted) !important;
 }
 .leaflet-control-attribution a { color: var(--accent) !important; }
+
+/* Bouton de suivi de l'avion (haut-gauche, sous le zoom) */
+.map-follow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .5);
+}
+.map-follow-btn i[class^="ph-"] { font-size: 20px; color: var(--accent); }
+.map-follow-btn:hover { background: #262626; }
+.map-follow-btn.active { background: var(--accent); }
+.map-follow-btn.active i[class^="ph-"] { color: #0c1a0c; }   /* sombre sur fond vert quand actif */
+
+/* Contrôles déroulants (haut-droite de la carte) : couches + fond, côte à côte */
+.map-controls { display: flex; flex-direction: row; gap: 6px; }
+.map-dropdown { position: relative; }
+.map-dd-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .5);
+}
+.map-dd-btn i[class^="ph-"] { font-size: 20px; color: var(--accent); }
+.map-dd-btn:hover { background: #262626; }
+.map-dd-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 170px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.map-dd-panel[hidden] { display: none; }   /* hidden l'emporte sur display:flex */
+.map-dd-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: .35rem .5rem;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.map-dd-panel label:hover { background: var(--panel-2); }
+.map-dd-panel input { accent-color: var(--accent); cursor: pointer; }
+
+/* Infobulles aéroports / navaids (thème sombre) */
+.leaflet-tooltip.airport-tooltip,
+.leaflet-tooltip.navaid-tooltip {
+  background: rgba(18, 18, 18, .92);
+  border: 1px solid var(--accent);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 4px 7px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .6);
+}
+.leaflet-tooltip.airport-tooltip::before,
+.leaflet-tooltip.navaid-tooltip::before { display: none; }   /* pas de flèche */
+.ap-tt-icao, .nv-tt-ident { color: var(--accent); font-weight: 700; }
+.ap-tt-name { color: var(--title); }
+.ap-tt-rwy, .nv-tt-type, .nv-tt-freq, .nv-tt-range { color: var(--muted); }
 
 /* --- Barre d'état (bas de fenêtre) : indice API --- */
 .statusbar {
@@ -229,8 +389,39 @@ main { flex: 1; min-height: 0; padding: 0; }
 }
 .modal-status.is-ok    { border-color: var(--accent); color: #bdf3b3; }
 .modal-status.is-error { border-color: var(--danger); color: #ffb3b3; }
+.modal-status.is-warn  { border-color: var(--warn); color: #ffd9a0; }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* Barre de progression (import aéroports MSFS) */
+.progress-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  margin: 4px 0 10px;
+}
+.progress-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .25s ease;
+}
+.progress-count {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--accent);
+  text-align: center;
+}
+.progress-stats {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  min-height: 1em;
+}
 
 /* Champs de saisie texte dans les modales (clé API, URL) */
 .field-label {
