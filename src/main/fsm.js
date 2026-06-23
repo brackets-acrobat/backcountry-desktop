@@ -30,6 +30,7 @@ const FT_PER_M = 3.280839895;
 const SAMPLE_MS = 500;
 const AIRBORNE_AGL_FT = 15;
 const HEADING_CUTOFF_KT = 20;
+const ROLL_CUTOFF_KT = 5;    // fin du roulage d'atterrissage : vitesse sol < 5 kt
 const STOP_KT = 0.5;
 const STOP_HOLD_MS = 1500;
 
@@ -58,6 +59,8 @@ function createFsm({ emit = () => {} } = {}) {
       touchdownLat: f.lat, touchdownLon: f.lon,
       simLocal: f.simLocal || null,
       aeronef: (f.aircraftTitle || '').trim() || null,
+      touchdownSpeedKt: f.groundSpeedKt,   // vitesse sol à l'instant du toucher
+      rollDistM: 0, rollLocked: false,     // distance de roulage jusqu'à < 5 kt
       lastLat: f.lat, lastLon: f.lon, distCumM: 0, lastPushedD: -1,
       profil: [], altSumM: 0, altCount: 0,
       hdgSin: 0, hdgCos: 0, hdgCount: 0, hdgLocked: false,
@@ -67,8 +70,15 @@ function createFsm({ emit = () => {} } = {}) {
 
   function sample(f) {
     const s = session;
-    s.distCumM += distanceM(s.lastLat, s.lastLon, f.lat, f.lon);
+    const inc = distanceM(s.lastLat, s.lastLon, f.lat, f.lon);
+    s.distCumM += inc;
     s.lastLat = f.lat; s.lastLon = f.lon;
+    // Distance de roulage d'atterrissage : on cumule tant que la vitesse sol
+    // reste >= 5 kt, puis on la fige dès qu'elle passe sous le seuil.
+    if (!s.rollLocked) {
+      if (f.groundSpeedKt >= ROLL_CUTOFF_KT) s.rollDistM += inc;
+      else s.rollLocked = true;
+    }
     const altM = f.groundAltFt / FT_PER_M;
     const d = Math.round(s.distCumM);
     if (d !== s.lastPushedD) { s.profil.push({ d, alt: Math.round(altM) }); s.lastPushedD = d; }
@@ -100,6 +110,8 @@ function createFsm({ emit = () => {} } = {}) {
       altitude_m: avgAltM != null ? Math.round(avgAltM) : null,
       type_surface: mode(s.surfType),
       etat_surface: mode(s.surfCond),
+      vitesse_toucher_kt: s.touchdownSpeedKt != null ? Math.round(s.touchdownSpeedKt * 10) / 10 : null,
+      distance_roulage_m: Math.round(s.rollDistM),
       cap_moyen_deg: cap,
       denivele_m: Math.round(pente.deniveleM),
       pente_max_pct: Math.round(pente.penteMaxPct * 10) / 10,
