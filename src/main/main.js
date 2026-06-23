@@ -12,10 +12,11 @@
 // modale envoie tout (relevés + photos en multipart) — avec file hors-ligne.
 // ============================================================
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { open: scOpen, Protocol: SCProtocol } = require('node-simconnect');
+const geomagnetism = require('geomagnetism');   // modèle magnétique mondial (WMM)
 
 const { chargerConfig, enregistrerCle, dossierBase } = require('./config');
 const { runExtraction: runMsfsExtraction } = require('./extract-airports-msfs');
@@ -283,6 +284,67 @@ ipcMain.handle('extraire-navaids-msfs', async (event) => {
 // --- Données carte : aéroports / navaids par bounding box ---
 ipcMain.handle('aeroports-bbox', async (_e, bbox) => airportsData.aeroportsDansBbox(bbox));
 ipcMain.handle('navaids-bbox', async (_e, bbox) => airportsData.navaidsDansBbox(bbox));
+ipcMain.handle('aeroport-par-code', async (_e, code) => airportsData.aeroportParCode(code));
+
+// Feature (aéroport/navaid) le plus proche d'un point, dans un rayon (NM).
+ipcMain.handle('feature-proche', async (_e, { lat, lon, rayonNm } = {}) => airportsData.featureProche(lat, lon, rayonNm));
+
+// Sauvegarde d'un plan de vol (.bcpfc) : dialogue natif « Enregistrer sous »,
+// puis écriture du plan en JSON. `nomSuggere` = nom de fichier proposé.
+
+// Dossier des plans de vol : Documents/backcountry pathfinders/flights plans
+// (créé si absent).
+function dossierPlansVol() {
+  const dir = path.join(app.getPath('documents'), 'backcountry pathfinders', 'flights plans');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { /* repli silencieux */ }
+  return dir;
+}
+
+ipcMain.handle('sauver-plan', async (_e, { nomSuggere, titre, plan } = {}) => {
+  try {
+    // Nettoie le nom des caractères interdits dans un nom de fichier Windows.
+    let nom = String(nomSuggere || '').replace(/[\\/:*?"<>|]/g, '').trim();
+    if (!nom) nom = 'plan-de-vol';
+    if (!nom.toLowerCase().endsWith('.bcpfc')) nom += '.bcpfc';
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: titre || 'Sauvegarder le plan de vol',
+      defaultPath: path.join(dossierPlansVol(), nom),
+      filters: [{ name: 'Backcountry Pathfinders flight plan', extensions: ['bcpfc'] }],
+    });
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(res.filePath, JSON.stringify(plan, null, 2), 'utf-8');
+    return { ok: true, filePath: res.filePath };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+// Ouverture d'un plan de vol (.bcpfc) : dialogue natif « Ouvrir », lecture JSON.
+ipcMain.handle('ouvrir-plan', async (_e, { titre } = {}) => {
+  try {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: titre || 'Ouvrir un plan de vol',
+      defaultPath: dossierPlansVol(),
+      properties: ['openFile'],
+      filters: [{ name: 'Backcountry Pathfinders flight plan', extensions: ['bcpfc'] }],
+    });
+    if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false, canceled: true };
+    const plan = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'));
+    return { ok: true, plan, filePath: res.filePaths[0] };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+// Déclinaison magnétique (WMM) en un point : decl en degrés, + = Est.
+ipcMain.handle('declinaison', async (_e, { lat, lon } = {}) => {
+  try {
+    const info = geomagnetism.model().point([lat, lon]);
+    return { ok: true, decl: info.decl };
+  } catch (_) {
+    return { ok: false, decl: 0 };
+  }
+});
 
 // Lieux de poser des utilisateurs (depuis la base du site, GET /api/lieux).
 ipcMain.handle('lieux-all', async () => recupererLieux(config));

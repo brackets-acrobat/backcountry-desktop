@@ -17,6 +17,7 @@
     "vfr"
   ],
   "dependencies": {
+    "geomagnetism": "^0.2.0",
     "node-simconnect": "^4.2.0"
   },
   "devDependencies": {

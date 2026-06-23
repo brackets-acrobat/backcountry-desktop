@@ -142,7 +142,48 @@ function navaidsDansBbox(bbox) {
   return { ok: true, navaids: all.filter((n) => dansBbox(n, bbox)) };
 }
 
+// Recherche un aéroport par code (ICAO/GPS/local) ou ident, insensible à la casse.
+// Utilisé pour tracer la route départ → arrivée à partir des champs ICAO.
+function aeroportParCode(code) {
+  const c = String(code == null ? '' : code).trim().toUpperCase();
+  if (!c) return { ok: false, reason: 'no-code' };
+  const all = chargerAeroports();
+  if (!all.length) return { ok: false, reason: 'no-data' };
+  const a = all.find((x) => String(x.code || '').toUpperCase() === c)
+         || all.find((x) => String(x.ident || '').toUpperCase() === c);
+  if (!a) return { ok: false, reason: 'not-found' };
+  return { ok: true, airport: { code: a.code, ident: a.ident, name: a.name, lat: a.lat, lon: a.lon, type: a.type } };
+}
+
+// Distance grand cercle (NM) entre deux points.
+function distNmEntre(lat1, lon1, lat2, lon2) {
+  const R = 3440.065;
+  const f1 = lat1 * Math.PI / 180, f2 = lat2 * Math.PI / 180;
+  const df = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+  const h = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Cherche le feature (aéroport OU navaid) le plus proche d'un point, dans un
+// rayon donné (NM). Sert à proposer d'aimanter un point tournant. Pré-filtre par
+// latitude (gate large) pour éviter le haversine sur toute la base.
+function featureProche(lat, lon, rayonNm) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { ok: false };
+  const r = Number.isFinite(rayonNm) ? rayonNm : 0.2;
+  let best = null;
+  const examiner = (item, kind, code, type) => {
+    if (Math.abs(item.lat - lat) > 0.05) return;   // ~3 NM : gate grossier
+    const d = distNmEntre(lat, lon, item.lat, item.lon);
+    if (d <= r && (!best || d < best.distNm)) {
+      best = { kind, code: code || '', name: item.name, lat: item.lat, lon: item.lon, type: type || '', distNm: d };
+    }
+  };
+  for (const a of chargerAeroports()) examiner(a, 'airport', a.code || a.ident, a.type);
+  for (const n of chargerNavaids()) examiner(n, 'navaid', n.ident, n.type);
+  return best ? { ok: true, found: true, feature: best } : { ok: true, found: false };
+}
+
 // Invalide les caches (après un import) → rechargés à la prochaine requête.
 function reload() { _airports = null; _navaids = null; }
 
-module.exports = { aeroportsDansBbox, navaidsDansBbox, reload };
+module.exports = { aeroportsDansBbox, navaidsDansBbox, aeroportParCode, featureProche, reload };

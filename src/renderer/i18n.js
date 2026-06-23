@@ -23,9 +23,45 @@ const TRANSLATIONS = {
     toggleTitle: 'Changer de langue / Switch language',
 
     // Second bandeau de données live
+    lblIcaoDep: 'ICAO départ',
+    lblIcaoArr: 'ICAO arrivée',
+    savePlanTooltip: 'Sauvegarder le plan de vol',
+    savePlanTitle: 'Sauvegarder le plan de vol',
+    savePlanErr: 'Échec de la sauvegarde : {err}',
+    newPlanTooltip: 'Nouveau plan de vol',
+    newPlanTitle: 'Nouveau plan de vol',
+    newPlanText: 'Le plan de vol en cours sera abandonné. Continuer ?',
+    newPlanConfirm: 'Nouveau plan',
+    openPlanTooltip: 'Ouvrir un plan de vol',
+    openPlanTitle: 'Ouvrir un plan de vol',
+    openPlanErr: 'Échec de l\'ouverture : {err}',
     lblLat: 'Latitude',
     lblLon: 'Longitude',
     lblAmsl: 'Altitude MSL',
+
+    // Menu contextuel (clic droit sur la carte)
+    ctxSetDep: 'Définir comme aéroport de départ',
+    ctxSetArr: 'Définir comme aéroport d\'arrivée',
+    ctxSetDepPoint: 'Définir comme lieu de départ',
+    ctxSetArrPoint: 'Définir comme lieu d\'arrivée',
+    ctxDeleteWp: 'Supprimer ce point tournant',
+    ctxRangeCircle: 'Cercle de portée',
+    ctxRangeCircleNavaid: 'Cercle de portée du navaid',
+    ctxRangeDeleteOne: 'Supprimer ce cercle de portée',
+    ctxRangeClear: 'Effacer les cercles de portée',
+    rangeTitle: 'Cercle de portée',
+    rangeLabel: 'Rayon (NM)',
+    rangeDraw: 'Tracer',
+    rangeInvalid: 'Rayon invalide.',
+
+    // Modale d'aimantation d'un point tournant sur un aéroport / navaid proche
+    snapTitle: 'Point tournant à proximité',
+    snapText: 'Un {kind} est à {dist} NM : {feature}. Placer le point tournant dessus ?',
+    snapAirport: 'aéroport',
+    snapNavaid: 'navaid',
+    snapLieu: 'lieu de poser',
+    snapKeep: 'Garder la position',
+    snapPlace: 'Placer dessus',
 
     // Jalon 2 — relevé du poser
     recBanner: 'Poser détecté — enregistrement en cours… ({n} pts · {d} m)',
@@ -156,9 +192,45 @@ const TRANSLATIONS = {
     toggleTitle: 'Changer de langue / Switch language',
 
     // Second live-data bar
+    lblIcaoDep: 'Departure ICAO',
+    lblIcaoArr: 'Arrival ICAO',
+    savePlanTooltip: 'Save flight plan',
+    savePlanTitle: 'Save flight plan',
+    savePlanErr: 'Save failed: {err}',
+    newPlanTooltip: 'New flight plan',
+    newPlanTitle: 'New flight plan',
+    newPlanText: 'The current flight plan will be discarded. Continue?',
+    newPlanConfirm: 'New plan',
+    openPlanTooltip: 'Open a flight plan',
+    openPlanTitle: 'Open a flight plan',
+    openPlanErr: 'Open failed: {err}',
     lblLat: 'Latitude',
     lblLon: 'Longitude',
     lblAmsl: 'Altitude MSL',
+
+    // Map context menu (right-click)
+    ctxSetDep: 'Set as departure airport',
+    ctxSetArr: 'Set as arrival airport',
+    ctxSetDepPoint: 'Set as departure point',
+    ctxSetArrPoint: 'Set as arrival point',
+    ctxDeleteWp: 'Delete this turning point',
+    ctxRangeCircle: 'Range ring',
+    ctxRangeCircleNavaid: 'Navaid range ring',
+    ctxRangeDeleteOne: 'Delete this range ring',
+    ctxRangeClear: 'Clear range rings',
+    rangeTitle: 'Range ring',
+    rangeLabel: 'Radius (NM)',
+    rangeDraw: 'Draw',
+    rangeInvalid: 'Invalid radius.',
+
+    // Snap a turning point onto a nearby airport / navaid
+    snapTitle: 'Turning point nearby',
+    snapText: 'A {kind} is {dist} NM away: {feature}. Snap the turning point onto it?',
+    snapAirport: 'airport',
+    snapNavaid: 'navaid',
+    snapLieu: 'landing spot',
+    snapKeep: 'Keep position',
+    snapPlace: 'Snap onto it',
 
     // Milestone 2 — landing survey
     recBanner: 'Landing detected — recording… ({n} pts · {d} m)',

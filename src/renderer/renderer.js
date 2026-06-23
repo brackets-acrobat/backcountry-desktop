@@ -128,10 +128,17 @@ function initMap() {
   seaplanesLayer = L.layerGroup().addTo(map);
   navaidsLayer   = L.layerGroup().addTo(map);
   lieuxLayer     = L.layerGroup().addTo(map);
+  _rangeLayer    = L.layerGroup().addTo(map);   // cercles de portée (magenta)
+  routeLayer     = L.layerGroup().addTo(map);   // ligne de route départ → arrivée
   ajouterBoutonSuivi();
   ajouterControlesCarte();
   map.on('moveend', planifierRafraichirCouches);
   map.on('zoomend', planifierRafraichirCouches);
+  // Clic droit sur le fond de carte (hors marqueur) → départ (ZZZY) / arrivée (ZZZZ).
+  map.on('contextmenu', ouvrirMenuFondCarte);
+  map.on('movestart zoomstart', fermerMenuContextuel);
+  // Au zoom, on ré-évalue l'affichage des étiquettes de leg (seuil de longueur).
+  map.on('zoomend', () => dessinerRoute());
   rafraichirCouches();
   rafraichirLieux();   // lieux : liste globale, chargée une fois (indépendante du zoom/bbox)
 }
@@ -316,6 +323,18 @@ async function rafraichirAeroports() {
     if (!enabled) continue;
     const marker = L.marker([a.lat, lonVersVue(a.lon, bbox.west)], { icon: makeAirportIcon(a), interactive: true, keyboard: false });
     marker.bindTooltip(makeAirportTooltipHtml(a), { direction: 'top', offset: [0, -8], className: 'airport-tooltip', opacity: 1 });
+    marker.on('contextmenu', (ev) => ouvrirMenuAeroport(a, ev));   // clic droit → départ/arrivée
+    // Clic gauche sur un aéroport qui EST un point tournant (aimanté) → le déplacer
+    // comme les autres (l'icône d'aéroport recouvre sinon le marqueur du point).
+    marker.on('mousedown', (ev) => {
+      if (ev.originalEvent && ev.originalEvent.button !== 0) return;
+      const code = (a.code || a.ident || '').toUpperCase();
+      const k = routeWaypoints.findIndex((w) => (w.code || '').toUpperCase() === code);
+      if (k < 0) return;   // pas un point tournant → comportement normal
+      L.DomEvent.stopPropagation(ev);
+      L.DomEvent.preventDefault(ev);
+      demarrerDeplacementPoint(k);
+    });
     marker.addTo(isHeli ? heliportsLayer : isSea ? seaplanesLayer : airportsLayer);
   }
 }
@@ -335,6 +354,7 @@ async function rafraichirNavaids() {
   for (const n of res.navaids) {
     const marker = L.marker([n.lat, lonVersVue(n.lon, bbox.west)], { icon: makeNavaidIcon(n), interactive: true, keyboard: false });
     marker.bindTooltip(makeNavaidTooltipHtml(n), { direction: 'top', offset: [0, -8], className: 'navaid-tooltip', opacity: 1 });
+    marker.on('contextmenu', (e) => ouvrirMenuNavaid(e, n));   // arrivée ZZZZ + cercle de portée
     marker.addTo(navaidsLayer);
   }
 }
@@ -395,8 +415,13 @@ function dessinerLieux() {
       fillColor: couleurSurfaceLieu(lieu.surface), fillOpacity: 0.9,
     });
     m.bindPopup(() => popupLieuHtml(lieu));   // contenu généré à l'ouverture (config/langue à jour)
+    m.on('contextmenu', ouvrirMenuFondCarte);   // lieu de poser = ni aéroport ni navaid → départ/arrivée
     m.addTo(lieuxLayer);
   }
+  // Les lieux et les points tournants sont dans le même pane SVG : on redessine
+  // la route APRÈS pour qu'un point tournant posé sur un lieu reste au-dessus
+  // (donc cliquable / déplaçable) plutôt que masqué par la pastille du lieu.
+  if (routeLayer) dessinerRoute();
 }
 
 // (Re)charge et dessine les lieux. Le chargement réseau n'a lieu qu'une fois ;
@@ -417,6 +442,684 @@ async function rafraichirLieux(forcer = false) {
   }
   dessinerLieux();
 }
+
+// ============================================================
+// Menu contextuel (clic droit sur la carte) + champs ICAO du bandeau.
+//   • Aéroport / héliport / hydrobase → « Définir comme aéroport de départ /
+//     d'arrivée » : inscrit l'ICAO de l'aéroport dans le champ correspondant.
+//   • Ailleurs (fond de carte, navaid, lieu de poser) → « Définir comme lieu
+//     d'arrivée » : inscrit le code ZZZZ dans le champ ICAO arrivée.
+// Le menu est un simple <div> positionné au curseur, reconstruit à chaque
+// ouverture (libellés dans la langue courante).
+// ============================================================
+let _ctxMenuEl = null;
+
+// Réduit une chaîne à un ICAO valide : 6 caractères alphanumériques majuscules.
+function nettoyerIcao(s) {
+  return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+}
+
+// Inscrit un code dans le champ ICAO départ ('dep') ou arrivée ('arr'),
+// puis (re)trace la ligne de route.
+function definirIcao(champ, code) {
+  const el = $(champ === 'dep' ? 'icao-dep' : 'icao-arr');
+  if (el) { el.value = nettoyerIcao(code); planifierLigneRoute(); majBoutonsPlan(); }
+}
+
+function fermerMenuContextuel() {
+  if (_ctxMenuEl) { _ctxMenuEl.remove(); _ctxMenuEl = null; }
+}
+
+// Ouvre le menu au point (pageX, pageY) avec une liste d'items {label, action}.
+function ouvrirMenuContextuel(pageX, pageY, items) {
+  fermerMenuContextuel();
+  if (!items || !items.length) return;
+  const menu = document.createElement('div');
+  menu.className = 'map-ctx-menu';
+  items.forEach((it) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'map-ctx-item';
+    b.textContent = it.label;
+    b.addEventListener('click', () => { fermerMenuContextuel(); it.action(); });
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  // Positionne au curseur, en rabattant le menu s'il déborde du viewport.
+  menu.style.left = pageX + 'px';
+  menu.style.top = pageY + 'px';
+  const r = menu.getBoundingClientRect();
+  if (r.right > window.innerWidth) menu.style.left = Math.max(0, pageX - r.width) + 'px';
+  if (r.bottom > window.innerHeight) menu.style.top = Math.max(0, pageY - r.height) + 'px';
+  _ctxMenuEl = menu;
+}
+
+// Coordonnées page (curseur) depuis un événement Leaflet.
+function ctxPageXY(e) {
+  const oe = e.originalEvent || e;
+  return { x: oe.pageX || 0, y: oe.pageY || 0 };
+}
+
+// Menu pour un aéroport (ou héliport / hydrobase) : définir comme départ/arrivée.
+// Si cet aéroport est aussi un point tournant (aimanté), propose sa suppression.
+function ouvrirMenuAeroport(airport, e) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  const code = nettoyerIcao(airport.code || airport.ident);
+  const p = ctxPageXY(e);
+  const items = [
+    { label: t('ctxSetDep'), action: () => definirIcao('dep', code) },
+    { label: t('ctxSetArr'), action: () => definirIcao('arr', code) },
+  ];
+  // Correspondance avec un point tournant aimanté : code brut (même base que le
+  // mousedown de l'aéroport et que le code stocké via featureProche).
+  const rawCode = (airport.code || airport.ident || '').toUpperCase();
+  const k = routeWaypoints.findIndex((w) => (w.code || '').toUpperCase() === rawCode);
+  if (k >= 0) items.push({ label: t('ctxDeleteWp'), action: () => supprimerPointTournant(k) });
+  // Cercle de portée centré sur l'aéroport (rayon saisi dans la modale).
+  items.push({ label: t('ctxRangeCircle'), action: () => ouvrirModaleCercle(L.latLng(airport.lat, airport.lon)) });
+  if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
+  ouvrirMenuContextuel(p.x, p.y, items);
+}
+
+// Menu sur le FOND de carte (ni aéroport ni navaid) ou un lieu de poser : définir
+// le départ (ZZZY) / l'arrivée (ZZZZ) à partir de ce point, + cercle de portée.
+// Items communs du menu « fond de carte » (départ/arrivée/cercle + effacer tous).
+function itemsFondCarte(latlng) {
+  const items = [
+    { label: t('ctxSetDepPoint'), action: () => { _lieuDepartLatLng = latlng; definirIcao('dep', 'ZZZY'); } },
+    { label: t('ctxSetArrPoint'), action: () => { _lieuArriveeLatLng = latlng; definirIcao('arr', 'ZZZZ'); } },
+    { label: t('ctxRangeCircle'), action: () => ouvrirModaleCercle(latlng) },
+  ];
+  if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
+  return items;
+}
+function ouvrirMenuFondCarte(e) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  const p = ctxPageXY(e);
+  ouvrirMenuContextuel(p.x, p.y, itemsFondCarte(e.latlng));
+}
+
+// Menu d'un cercle de portée (clic droit sur son tracé) : options du fond de
+// carte + suppression de CE cercle.
+function ouvrirMenuCercle(e, supprimerCeCercle) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  L.DomEvent.stopPropagation(e);
+  const p = ctxPageXY(e);
+  const items = itemsFondCarte(e.latlng);
+  items.push({ label: t('ctxRangeDeleteOne'), action: supprimerCeCercle });
+  ouvrirMenuContextuel(p.x, p.y, items);
+}
+
+// Menu sur un navaid : arrivée ZZZZ + cercle de portée du navaid (rayon publié).
+function ouvrirMenuNavaid(e, navaid) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  const p = ctxPageXY(e);
+  const latlng = e.latlng;
+  const items = [
+    { label: t('ctxSetArrPoint'), action: () => { _lieuArriveeLatLng = latlng; definirIcao('arr', 'ZZZZ'); } },
+  ];
+  if (navaid && Number.isFinite(navaid.rangeNm) && navaid.rangeNm > 0) {
+    items.push({ label: t('ctxRangeCircleNavaid'), action: () => tracerCercleNavaid(navaid) });
+  }
+  if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
+  ouvrirMenuContextuel(p.x, p.y, items);
+}
+
+// ============================================================
+// Cercles de portée (repris de NavXpressVFR). Anneau magenta #FF00FF (ép.2, sans
+// remplissage) ; le cercle MANUEL ajoute un point central plein (8px). Le cercle
+// NAVAID utilise sa portée publiée (rangeNm), centré sur le navaid (pas de point,
+// son icône marque déjà le centre). Les cercles s'accumulent ; effacés par le menu
+// ou par « Nouveau plan ».
+// ============================================================
+const MAGENTA = '#ff00ff';
+let _rangeLayer = null;          // créé dans initMap
+let _rangePendingLatLng = null;  // centre en attente (modale de saisie ouverte)
+
+function tracerCercle(lat, lon, nm, avecPoint) {
+  if (!_rangeLayer || !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(nm) || nm <= 0) return;
+  const rayonM = nm * 1852;
+  // Trait visible (non interactif).
+  const visible = L.circle([lat, lon], { radius: rayonM, color: MAGENTA, weight: 2, opacity: 1, fill: false, interactive: false }).addTo(_rangeLayer);
+  // Bande de clic invisible centrée sur le trait : ép. 4 = trait (2px) + 1px de
+  // chaque côté (magnétisme). Trait « transparent » (≠ none) → cliquable même
+  // invisible. Porte le menu contextuel du cercle.
+  const hit = L.circle([lat, lon], { radius: rayonM, color: 'transparent', weight: 4, opacity: 1, fill: false, interactive: true }).addTo(_rangeLayer);
+  let dot = null;
+  if (avecPoint) {
+    dot = L.circleMarker([lat, lon], { radius: 4, stroke: false, fill: true, fillColor: MAGENTA, fillOpacity: 1, interactive: false }).addTo(_rangeLayer);
+  }
+  const supprimer = () => {
+    _rangeLayer.removeLayer(visible);
+    _rangeLayer.removeLayer(hit);
+    if (dot) _rangeLayer.removeLayer(dot);
+  };
+  hit.on('contextmenu', (e) => ouvrirMenuCercle(e, supprimer));
+  hit.on('mouseover', () => { if (!_routeDragging) map.getContainer().style.cursor = 'pointer'; });
+  hit.on('mouseout', () => { if (!_routeDragging) map.getContainer().style.cursor = ''; });
+}
+
+function tracerCercleNavaid(navaid) {
+  if (navaid) tracerCercle(navaid.lat, navaid.lon, navaid.rangeNm, false);
+}
+
+function aDesCercles() { return !!_rangeLayer && _rangeLayer.getLayers().length > 0; }
+function effacerCercles() { if (_rangeLayer) _rangeLayer.clearLayers(); }
+
+function ouvrirModaleCercle(latlng) {
+  _rangePendingLatLng = latlng;
+  $('range-radius').value = '';
+  $('range-error').textContent = '';
+  $('range-overlay').hidden = false;
+  setTimeout(() => { try { $('range-radius').focus(); } catch (_) {} }, 50);
+}
+function fermerModaleCercle() { $('range-overlay').hidden = true; _rangePendingLatLng = null; }
+function validerCercle() {
+  if (!_rangePendingLatLng) return;
+  const nm = parseFloat(String($('range-radius').value || '').trim().replace(',', '.'));
+  if (!Number.isFinite(nm) || nm <= 0) { $('range-error').textContent = t('rangeInvalid'); return; }
+  tracerCercle(_rangePendingLatLng.lat, _rangePendingLatLng.lng, nm, true);
+  fermerModaleCercle();
+}
+
+$('btn-range-ok').addEventListener('click', validerCercle);
+$('btn-range-cancel').addEventListener('click', fermerModaleCercle);
+$('range-radius').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); validerCercle(); }
+  else if (e.key === 'Escape') { e.preventDefault(); fermerModaleCercle(); }
+});
+
+// ============================================================
+// Ligne de route : trait droit ICAO départ → ICAO arrivée.
+// Rouge épaisseur 3, bordé de blanc (1 px de chaque côté) — deux polylignes
+// superposées (blanche ép.5 dessous, rouge ép.3 dessus). Les points sont résolus
+// depuis la base aéroports (par code) ; 'ZZZZ' utilise le dernier point cliqué.
+// ============================================================
+let routeLayer = null;
+let _lieuDepartLatLng = null;    // point de départ hors-aéroport (ZZZY)
+let _lieuArriveeLatLng = null;   // point d'arrivée hors-aéroport (ZZZZ)
+// Points tournants entre départ et arrivée, dans l'ordre de parcours. C'est le
+// stockage EN MÉMOIRE du plan : [{lat, lon}] en coordonnées canoniques
+// [-180,180]. (La sauvegarde du plan de vol s'appuiera dessus.)
+let routeWaypoints = [];
+let _routeTimer = null;
+let _routeReqId = 0;
+let _routeDragging = false;   // drag de création/déplacement d'un point en cours
+
+function planifierLigneRoute() {
+  if (_routeTimer) clearTimeout(_routeTimer);
+  _routeTimer = setTimeout(majLigneRoute, 150);
+}
+
+// Résout une valeur de champ ICAO en {lat, lon} (ou null si introuvable).
+// ZZZY = point de départ cliqué, ZZZZ = point d'arrivée cliqué.
+async function resoudrePointIcao(valeur) {
+  const code = nettoyerIcao(valeur);
+  if (!code) return null;
+  if (code === 'ZZZY') {
+    return _lieuDepartLatLng ? { lat: _lieuDepartLatLng.lat, lon: _lieuDepartLatLng.lng } : null;
+  }
+  if (code === 'ZZZZ') {
+    return _lieuArriveeLatLng ? { lat: _lieuArriveeLatLng.lat, lon: _lieuArriveeLatLng.lng } : null;
+  }
+  let res;
+  try { res = await window.bc.aeroportParCode(code); } catch (_) { return null; }
+  return (res && res.ok && res.airport) ? { lat: res.airport.lat, lon: res.airport.lon } : null;
+}
+
+// Ramène une longitude (éventuellement déroulée hors plage) dans [-180, 180].
+function wrapLon(lon) { return ((lon + 180) % 360 + 360) % 360 - 180; }
+
+// Déroule les longitudes d'une suite de points pour l'AFFICHAGE (antiméridien) :
+// chaque point reste dans la même copie du monde que le précédent (écart ≤ 180°),
+// pour que la ligne emprunte toujours le plus court chemin. Coordonnées stockées
+// inchangées. Renvoie le tableau des longitudes d'affichage.
+function deroulerLons(points) {
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    if (i === 0) { out.push(points[0].lon); continue; }
+    let d = points[i].lon - points[i - 1].lon;
+    d = ((d + 180) % 360 + 360) % 360 - 180;
+    out.push(out[i - 1] + d);
+  }
+  return out;
+}
+
+// Extrémités résolues (cache), pour redessiner la route de façon SYNCHRONE
+// pendant un drag sans relancer la résolution ICAO (asynchrone) à chaque mouvement.
+let _routeDep = null, _routeArr = null;
+
+// --- Géométrie pour les étiquettes de leg (cap magnétique + distance) ---
+const _RAYON_TERRE_NM = 3440.065;
+
+// Cap vrai initial (grand cercle) de A vers B, en degrés [0,360).
+// On passe des longitudes d'affichage (déroulées) → l'écart est déjà le plus
+// court chemin, l'antiméridien est donc géré.
+function capVraiInitial(latA, lonA, latB, lonB) {
+  const f1 = latA * Math.PI / 180, f2 = latB * Math.PI / 180;
+  const dl = (lonB - lonA) * Math.PI / 180;
+  const y = Math.sin(dl) * Math.cos(f2);
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// Distance grand cercle A→B en milles nautiques.
+function distanceNM(latA, lonA, latB, lonB) {
+  const f1 = latA * Math.PI / 180, f2 = latB * Math.PI / 180;
+  const df = (latB - latA) * Math.PI / 180, dl = (lonB - lonA) * Math.PI / 180;
+  const h = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
+  return 2 * _RAYON_TERRE_NM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Mesure la largeur d'un texte au gabarit de l'étiquette (canvas hors-écran).
+let _badgeCtx = null;
+function mesurerLargeurTexte(txt) {
+  if (!_badgeCtx) {
+    _badgeCtx = document.createElement('canvas').getContext('2d');
+    _badgeCtx.font = "11px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+  }
+  return _badgeCtx.measureText(txt).width;
+}
+
+// Déclinaison magnétique moyenne de la route (degrés, + = Est), recalculée
+// (asynchrone, via le modèle WMM du main) à chaque modification de la route.
+let _routeDeclinaison = 0;
+async function rafraichirDeclinaison() {
+  if (!_routeDep || !_routeArr) return;
+  const pts = [_routeDep, ...routeWaypoints, _routeArr];
+  const disp = deroulerLons(pts);   // évite l'artefact antiméridien sur le centroïde
+  let sLat = 0, sLon = 0;
+  for (let i = 0; i < pts.length; i++) { sLat += pts[i].lat; sLon += disp[i]; }
+  const lat = sLat / pts.length, lon = wrapLon(sLon / pts.length);
+  let res;
+  try { res = await window.bc.declinaison(lat, lon); } catch (_) { res = null; }
+  _routeDeclinaison = (res && res.ok && Number.isFinite(res.decl)) ? res.decl : 0;
+  dessinerRoute();   // ré-étiquette avec la déclinaison à jour
+}
+
+// --- Aimantation d'un point tournant sur un aéroport / navaid proche ---
+const SNAP_RAYON_NM = 0.2;
+let _snapIndex = -1;        // index (dans routeWaypoints) du point concerné
+let _snapFeature = null;    // feature proposé (aéroport/navaid)
+
+// Lieu de poser le plus proche d'un point (depuis le cache renderer _lieuxData).
+// Le nom du lieu sert d'identifiant du point tournant (pas d'ICAO pour un lieu).
+function lieuProche(lat, lon, rayonNm) {
+  if (!Array.isArray(_lieuxData)) return null;
+  let best = null;
+  for (const l of _lieuxData) {
+    if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon)) continue;
+    if (Math.abs(l.lat - lat) > 0.05) continue;   // gate grossier (~3 NM)
+    const d = distanceNM(lat, lon, l.lat, l.lon);
+    if (d <= rayonNm && (!best || d < best.distNm)) {
+      const nom = l.nom || `${t('lieuUntitled')} #${l.id}`;
+      best = { kind: 'lieu', code: nom, name: nom, lat: l.lat, lon: l.lon, distNm: d };
+    }
+  }
+  return best;
+}
+
+// Après création/déplacement d'un point tournant : si un aéroport, un navaid OU
+// un lieu de poser est à moins de SNAP_RAYON_NM, propose de l'aimanter (modale).
+async function verifierProximitePointTournant(index) {
+  if (index < 0 || index >= routeWaypoints.length) return;
+  const pt = routeWaypoints[index];
+  let best = null;
+  let res;
+  try { res = await window.bc.featureProche(pt.lat, pt.lon, SNAP_RAYON_NM); } catch (_) { res = null; }
+  if (res && res.ok && res.found && res.feature) best = res.feature;
+  const lieu = lieuProche(pt.lat, pt.lon, SNAP_RAYON_NM);   // lieux = côté renderer
+  if (lieu && (!best || lieu.distNm < best.distNm)) best = lieu;
+  if (!best) return;
+  _snapIndex = index;
+  _snapFeature = best;
+  const kindKey = best.kind === 'airport' ? 'snapAirport' : best.kind === 'lieu' ? 'snapLieu' : 'snapNavaid';
+  const label = (best.code && best.code !== best.name) ? `${best.name} (${best.code})` : best.name;
+  const dist = best.distNm < 0.1 ? best.distNm.toFixed(2) : best.distNm.toFixed(1);
+  $('snap-text').textContent = t('snapText')
+    .replace('{kind}', t(kindKey)).replace('{dist}', dist).replace('{feature}', label);
+  $('snap-overlay').hidden = false;
+}
+
+function fermerModaleSnap() {
+  $('snap-overlay').hidden = true;
+  _snapIndex = -1; _snapFeature = null;
+}
+
+// Validation : place le point tournant sur les coordonnées du feature.
+$('btn-snap-ok').addEventListener('click', () => {
+  if (_snapIndex >= 0 && _snapIndex < routeWaypoints.length && _snapFeature) {
+    // Point aimanté : on garde le code (ICAO/ident) → il servira de nom du point.
+    routeWaypoints[_snapIndex] = { lat: _snapFeature.lat, lon: wrapLon(_snapFeature.lon), code: _snapFeature.code || null };
+    dessinerRoute();
+    rafraichirDeclinaison();
+  }
+  fermerModaleSnap();
+});
+$('btn-snap-cancel').addEventListener('click', fermerModaleSnap);   // garde la position posée
+
+// --- Nommage des points tournants ---
+// Point aimanté sur un aéroport/navaid → son code (ICAO/ident). Sinon nom
+// générique « WPn » numéroté séquentiellement dans l'ordre de la route.
+function nomsPointsTournants(wps) {
+  let n = 0;
+  return wps.map((p) => { if (p.code) return p.code; n += 1; return 'WP' + n; });
+}
+
+// --- Sauvegarde du plan de vol (.bcpfc) ---
+// Construit l'objet plan à partir de l'état courant (ICAO + points tournants).
+function construirePlan() {
+  const dep = nettoyerIcao($('icao-dep').value);
+  const arr = nettoyerIcao($('icao-arr').value);
+  const noms = nomsPointsTournants(routeWaypoints);
+  return {
+    format: 'bcpfc',
+    version: 1,
+    depart: dep || null,
+    arrivee: arr || null,
+    // Départ / arrivée hors-aéroport (ZZZY / ZZZZ) : on conserve les coordonnées.
+    departPoint: (dep === 'ZZZY' && _lieuDepartLatLng)
+      ? { lat: _lieuDepartLatLng.lat, lon: wrapLon(_lieuDepartLatLng.lng) } : null,
+    arriveePoint: (arr === 'ZZZZ' && _lieuArriveeLatLng)
+      ? { lat: _lieuArriveeLatLng.lat, lon: wrapLon(_lieuArriveeLatLng.lng) } : null,
+    // code = ICAO/ident si aimanté (sinon null) ; nom = code ou « WPn ».
+    pointsTournants: routeWaypoints.map((p, i) => ({ lat: p.lat, lon: p.lon, code: p.code || null, nom: noms[i] })),
+    cree: new Date().toISOString(),
+  };
+}
+
+// Le plan n'est enregistrable que s'il a au moins un ICAO départ ET arrivée.
+function planEnregistrable() {
+  return !!nettoyerIcao($('icao-dep').value) && !!nettoyerIcao($('icao-arr').value);
+}
+function majBoutonsPlan() {
+  $('btn-save-plan').disabled = !planEnregistrable();
+}
+
+$('btn-save-plan').addEventListener('click', async () => {
+  if (!planEnregistrable()) return;   // garde-fou (le bouton est aussi désactivé)
+  const dep = nettoyerIcao($('icao-dep').value);
+  const arr = nettoyerIcao($('icao-arr').value);
+  let res;
+  try {
+    res = await window.bc.sauverPlan({ nomSuggere: `${dep} - ${arr}`, titre: t('savePlanTitle'), plan: construirePlan() });
+  } catch (err) {
+    res = { ok: false, error: (err && err.message) || String(err) };
+  }
+  if (res && !res.ok && !res.canceled) {
+    console.error(t('savePlanErr').replace('{err}', res.error || '?'));
+  }
+});
+
+// --- Chargement d'un plan de vol (.bcpfc) ---
+// Restaure l'état (ICAO, point d'arrivée ZZZZ, points tournants avec leurs codes)
+// puis redessine la route.
+function appliquerPlan(plan) {
+  if (!plan || typeof plan !== 'object') return;
+  $('icao-dep').value = nettoyerIcao(plan.depart || '');
+  $('icao-arr').value = nettoyerIcao(plan.arrivee || '');
+  const dp = plan.departPoint, ap = plan.arriveePoint;
+  _lieuDepartLatLng = (dp && Number.isFinite(dp.lat) && Number.isFinite(dp.lon))
+    ? L.latLng(dp.lat, dp.lon) : null;
+  _lieuArriveeLatLng = (ap && Number.isFinite(ap.lat) && Number.isFinite(ap.lon))
+    ? L.latLng(ap.lat, ap.lon) : null;
+  routeWaypoints = Array.isArray(plan.pointsTournants)
+    ? plan.pointsTournants
+        .filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
+        .map((p) => ({ lat: p.lat, lon: p.lon, code: p.code || null }))
+    : [];
+  majBoutonsPlan();
+  majLigneRoute();   // re-résout les ICAO d'extrémité, redessine, recalcule la déclinaison
+}
+
+// Nouveau plan : réinitialise tout l'état (ICAO, points de dép./arr. cliqués,
+// points tournants) et efface la route.
+function reinitialiserPlan() {
+  $('icao-dep').value = '';
+  $('icao-arr').value = '';
+  _lieuDepartLatLng = null;
+  _lieuArriveeLatLng = null;
+  routeWaypoints = [];
+  effacerCercles();   // comme NavXpressVFR : « Nouveau plan » efface aussi les cercles
+  majBoutonsPlan();
+  majLigneRoute();   // dép./arr. vides → la route est effacée
+}
+
+// Y a-t-il un plan en cours (qui mérite une confirmation avant d'être abandonné) ?
+function planEnCours() {
+  return !!nettoyerIcao($('icao-dep').value) || !!nettoyerIcao($('icao-arr').value)
+    || routeWaypoints.length > 0;
+}
+
+$('btn-new-plan').addEventListener('click', () => {
+  if (!planEnCours()) { reinitialiserPlan(); return; }   // rien à perdre → pas de confirmation
+  $('newplan-overlay').hidden = false;
+});
+$('btn-newplan-cancel').addEventListener('click', () => { $('newplan-overlay').hidden = true; });
+$('btn-newplan-ok').addEventListener('click', () => {
+  $('newplan-overlay').hidden = true;
+  reinitialiserPlan();
+});
+
+$('btn-open-plan').addEventListener('click', async () => {
+  let res;
+  try { res = await window.bc.ouvrirPlan({ titre: t('openPlanTitle') }); }
+  catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
+  if (!res || res.canceled) return;
+  if (!res.ok || !res.plan) { console.error(t('openPlanErr').replace('{err}', (res && res.error) || '?')); return; }
+  appliquerPlan(res.plan);
+});
+
+// Drag manuel (events DOM natifs). `appliquer(latlng)` est appelé à chaque
+// déplacement (prévisualisation temps réel), `valider(latlng)` au relâcher.
+function dragPointTournant(appliquer, valider) {
+  if (_routeDragging) return;
+  _routeDragging = true;
+  map.dragging.disable();
+  map.getContainer().style.cursor = 'grabbing';
+  function latlngFromEvent(ev) {
+    const rect = map.getContainer().getBoundingClientRect();
+    const pt = L.point(ev.clientX - rect.left, ev.clientY - rect.top);
+    return map.containerPointToLatLng(pt);
+  }
+  function onMove(ev) { appliquer(latlngFromEvent(ev)); }
+  function onUp(ev) {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    map.dragging.enable();
+    map.getContainer().style.cursor = '';
+    _routeDragging = false;
+    valider(latlngFromEvent(ev));
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Étiquette d'un leg : carré rouge (bord blanc 1 px, texte blanc 11 px) au
+// milieu du segment, orienté le long de la ligne. Affiche le cap MAGNÉTIQUE
+// (cap vrai − déclinaison) et la distance en NM. N'apparaît que si le segment à
+// l'écran est assez long pour contenir le carré + 20 px de ligne de chaque côté
+// (sinon il faut zoomer davantage).
+function dessinerEtiquetteLeg(a, lonA, b, lonB) {
+  if (!map) return;
+  const capVrai = capVraiInitial(a.lat, lonA, b.lat, lonB);
+  const capMag = Math.round(((capVrai - _routeDeclinaison) % 360 + 360) % 360);
+  const dNM = distanceNM(a.lat, lonA, b.lat, lonB);
+  const distTxt = dNM >= 10 ? String(Math.round(dNM)) : dNM.toFixed(1);
+  const label = `${String(capMag).padStart(3, '0')}°  ${distTxt} NM`;
+
+  // Largeur du carré (texte + padding 5px×2 + bord 1px×2), hauteur fixe.
+  const w = Math.ceil(mesurerLargeurTexte(label)) + 12;
+  const h = 19;
+
+  // Longueur du segment à l'écran : on n'affiche que s'il reste ≥ 20 px de ligne
+  // de chaque côté du carré.
+  const pA = map.latLngToContainerPoint([a.lat, lonA]);
+  const pB = map.latLngToContainerPoint([b.lat, lonB]);
+  if (pA.distanceTo(pB) < w + 40) return;
+
+  // Orientation le long de la ligne, texte gardé lisible (jamais à l'envers).
+  let ang = Math.atan2(pB.y - pA.y, pB.x - pA.x) * 180 / Math.PI;
+  if (ang > 90) ang -= 180; else if (ang < -90) ang += 180;
+
+  const icon = L.divIcon({
+    className: 'leg-badge-wrap',
+    html: `<div class="leg-badge" style="transform:rotate(${ang}deg)">${escapeHtml(label)}</div>`,
+    iconSize: [w, h],
+    iconAnchor: [w / 2, h / 2],
+  });
+  L.marker([(a.lat + b.lat) / 2, (lonA + lonB) / 2], { icon, interactive: false, keyboard: false }).addTo(routeLayer);
+}
+
+// Résout les ICAO (asynchrone) puis dessine la route. Garde anti-concurrence.
+async function majLigneRoute() {
+  if (!routeLayer) return;
+  const reqId = ++_routeReqId;
+  const dep = await resoudrePointIcao($('icao-dep').value);
+  const arr = await resoudrePointIcao($('icao-arr').value);
+  if (reqId !== _routeReqId) return;   // une saisie plus récente a pris le relais
+  _routeDep = dep; _routeArr = arr;
+  dessinerRoute();
+  rafraichirDeclinaison();   // recalcule la déclinaison puis ré-étiquette
+}
+
+// Démarre le déplacement (clic-glisser) du point tournant d'index k. Réutilisé
+// par le marqueur du point ET par le clic gauche sur un aéroport qui est ce point.
+function demarrerDeplacementPoint(k) {
+  if (k < 0 || k >= routeWaypoints.length) return;
+  dragPointTournant(
+    (ll) => {   // temps réel : déplace le point dans l'aperçu
+      const w = routeWaypoints.slice();
+      w[k] = { lat: ll.lat, lon: wrapLon(ll.lng) };
+      dessinerRoute({ wps: w, activeIdx: k + 1 });
+    },
+    (ll) => {   // relâcher : enregistre la nouvelle position (perd le code aimanté)
+      routeWaypoints[k] = { lat: ll.lat, lon: wrapLon(ll.lng) };
+      dessinerRoute();
+      rafraichirDeclinaison();
+      verifierProximitePointTournant(k);   // aimantation aéroport/navaid proche
+    }
+  );
+}
+
+// Supprime le point tournant d'index k.
+function supprimerPointTournant(k) {
+  if (k < 0 || k >= routeWaypoints.length) return;
+  routeWaypoints.splice(k, 1);
+  dessinerRoute();
+  rafraichirDeclinaison();
+}
+
+// Petit point rouge (rayon 6, contour blanc 1px) sur une extrémité hors-aéroport
+// (départ ZZZY / arrivée ZZZZ) — il n'y a pas d'icône d'aéroport à cet endroit.
+function dessinerPointExtremite(lat, lonDisp) {
+  L.circleMarker([lat, lonDisp], {
+    radius: 6, color: '#ffffff', weight: 1,
+    fillColor: '#ff0000', fillOpacity: 1, opacity: 1, interactive: false,
+  }).addTo(routeLayer);
+}
+
+// Dessine la route à partir des extrémités en cache (synchrone). `opts.wps`
+// remplace les points tournants (prévisualisation pendant un drag) ; `opts.activeIdx`
+// est l'index, dans la suite complète, du point en cours de déplacement.
+function dessinerRoute(opts) {
+  if (!routeLayer) return;
+  routeLayer.clearLayers();
+  const dep = _routeDep, arr = _routeArr;
+  if (!dep || !arr) return;
+  const wps = (opts && opts.wps) ? opts.wps : routeWaypoints;
+  const activeIdx = (opts && Number.isFinite(opts.activeIdx)) ? opts.activeIdx : -1;
+
+  // Suite complète : départ → points tournants → arrivée, longitudes d'affichage
+  // déroulées (antiméridien).
+  const points = [dep, ...wps, arr];
+  const disp = deroulerLons(points);
+
+  // Un segment par leg : bordure blanche (dessous) + trait rouge (dessus).
+  // Clic-glisser sur un segment → insertion d'un point tournant à cet index.
+  for (let i = 0; i < points.length - 1; i++) {
+    const latlngs = [[points[i].lat, disp[i]], [points[i + 1].lat, disp[i + 1]]];
+    L.polyline(latlngs, { color: '#ffffff', weight: 5, opacity: 1 }).addTo(routeLayer);
+    const seg = L.polyline(latlngs, { color: '#ff0000', weight: 3, opacity: 1 }).addTo(routeLayer);
+    dessinerEtiquetteLeg(points[i], disp[i], points[i + 1], disp[i + 1]);
+    const segIndex = i;
+    seg.on('mouseover', () => { if (!_routeDragging) { seg.setStyle({ weight: 4 }); map.getContainer().style.cursor = 'crosshair'; } });
+    seg.on('mouseout', () => { if (!_routeDragging) { seg.setStyle({ weight: 3 }); map.getContainer().style.cursor = ''; } });
+    seg.on('mousedown', (e) => {
+      if (e.originalEvent && e.originalEvent.button !== 0) return;   // clic gauche seulement
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+      // Le point est inséré à segIndex ; il occupe l'index segIndex+1 dans la suite.
+      dragPointTournant(
+        (ll) => {   // temps réel : aperçu avec le point inséré sous le curseur
+          const w = routeWaypoints.slice();
+          w.splice(segIndex, 0, { lat: ll.lat, lon: wrapLon(ll.lng) });
+          dessinerRoute({ wps: w, activeIdx: segIndex + 1 });
+        },
+        (ll) => {   // relâcher : enregistre le point tournant
+          routeWaypoints.splice(segIndex, 0, { lat: ll.lat, lon: wrapLon(ll.lng) });
+          dessinerRoute();
+          rafraichirDeclinaison();
+          verifierProximitePointTournant(segIndex);   // aimantation aéroport/navaid proche
+        }
+      );
+    });
+  }
+
+  // Marqueurs des points tournants (déplaçables par clic-glisser).
+  const noms = nomsPointsTournants(wps);
+  for (let k = 0; k < wps.length; k++) {
+    const ptIdx = k + 1;
+    const actif = ptIdx === activeIdx;
+    const m = L.circleMarker([wps[k].lat, disp[ptIdx]], {
+      radius: actif ? 7 : 6, color: '#ffffff', weight: 2,
+      fillColor: '#ff7043', fillOpacity: 0.95, opacity: 1,
+    }).addTo(routeLayer);
+    m.bindTooltip(noms[k], { direction: 'top', offset: [0, -8], className: 'wp-tooltip', opacity: 1 });
+    const idx = k;
+    m.on('mouseover', () => { if (!_routeDragging) map.getContainer().style.cursor = 'grab'; });
+    m.on('mouseout', () => { if (!_routeDragging) map.getContainer().style.cursor = ''; });
+    m.on('mousedown', (e) => {
+      if (e.originalEvent && e.originalEvent.button !== 0) return;   // clic gauche → déplacement
+      L.DomEvent.stopPropagation(e);
+      L.DomEvent.preventDefault(e);
+      demarrerDeplacementPoint(idx);
+    });
+    m.on('contextmenu', (e) => {   // clic droit → suppression du point tournant
+      if (e.originalEvent) e.originalEvent.preventDefault();
+      L.DomEvent.stopPropagation(e);
+      const p = ctxPageXY(e);
+      ouvrirMenuContextuel(p.x, p.y, [
+        { label: t('ctxDeleteWp'), action: () => supprimerPointTournant(idx) },
+      ]);
+    });
+  }
+
+  // Points d'extrémité hors-aéroport (ZZZY départ / ZZZZ arrivée) : point rouge.
+  const depCode = nettoyerIcao($('icao-dep').value);
+  const arrCode = nettoyerIcao($('icao-arr').value);
+  if (depCode === 'ZZZY') dessinerPointExtremite(dep.lat, disp[0]);
+  if (arrCode === 'ZZZZ') dessinerPointExtremite(arr.lat, disp[points.length - 1]);
+}
+
+// Câblage global : ferme le menu sur clic ailleurs / Échap. (Le clic droit
+// d'ouverture ne déclenche pas de 'click', donc n'auto-ferme pas le menu.)
+document.addEventListener('click', (e) => {
+  if (_ctxMenuEl && !e.target.closest('.map-ctx-menu')) fermerMenuContextuel();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fermerMenuContextuel(); });
+
+// Saisie ICAO : majuscules, alphanumérique seulement, 6 caractères max.
+['icao-dep', 'icao-arr'].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    const v = nettoyerIcao(el.value);
+    if (el.value !== v) el.value = v;
+    planifierLigneRoute();
+    majBoutonsPlan();
+  });
+});
 
 // Contrôles déroulants (haut-droite) : couches MSFS + fond de carte, côte à côte.
 function ajouterControlesCarte() {
@@ -1048,6 +1751,7 @@ $('menu-import-navaids').addEventListener('click', () => { fermerImportMenu(); o
 initI18n();
 initMap();
 setStatus('disconnected');
+majBoutonsPlan();   // bouton « sauvegarder » désactivé tant que dép.+arr. absents
 window.bc.getConfig().then((cfg) => {
   lastConfig = cfg;
   renderApiHint();

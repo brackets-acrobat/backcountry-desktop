@@ -43,11 +43,30 @@
     </div>
   </header>
 
-  <!-- Second bandeau : données live essentielles (reprises de Scan live) -->
+  <!-- Second bandeau : ICAO départ/arrivée (plan) + données live essentielles -->
   <div class="subbar">
+    <div class="subbar-field">
+      <label class="subbar-flabel" for="icao-dep" data-i18n="lblIcaoDep">ICAO départ</label>
+      <input id="icao-dep" class="icao-input" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="----">
+    </div>
+    <div class="subbar-field">
+      <label class="subbar-flabel" for="icao-arr" data-i18n="lblIcaoArr">ICAO arrivée</label>
+      <input id="icao-arr" class="icao-input" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="----">
+    </div>
     <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLat">Latitude</span> <span id="b-lat" class="subval">—</span></div>
     <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLon">Longitude</span> <span id="b-lon" class="subval">—</span></div>
     <div class="subbar-item"><i class="ph-light ph-arrow-line-up"></i> <span data-i18n="lblAmsl">Altitude MSL</span> <span id="b-amsl" class="subval">—</span><span class="unit">ft</span></div>
+    <div class="subbar-actions">
+      <button id="btn-new-plan" class="subbar-btn" data-i18n-title="newPlanTooltip" title="Nouveau plan de vol">
+        <i class="ph-light ph-file-plus"></i>
+      </button>
+      <button id="btn-open-plan" class="subbar-btn" data-i18n-title="openPlanTooltip" title="Ouvrir un plan de vol">
+        <i class="ph-light ph-folder-open"></i>
+      </button>
+      <button id="btn-save-plan" class="subbar-btn" data-i18n-title="savePlanTooltip" title="Sauvegarder le plan de vol">
+        <i class="ph-light ph-floppy-disk"></i>
+      </button>
+    </div>
   </div>
 
   <main>
@@ -174,6 +193,44 @@
       <div class="modal-actions">
         <button id="btn-discard-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
         <button id="btn-discard-ok" class="btn btn-danger"><span data-i18n="btnConfirmDiscard">Confirmer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : cercle de portée (saisie du rayon en NM) -->
+  <div id="range-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-circle-dashed"></i> <span data-i18n="rangeTitle">Cercle de portée</span></h3>
+      <label class="field-label" for="range-radius" data-i18n="rangeLabel">Rayon (NM)</label>
+      <input id="range-radius" class="field-input" type="number" min="0" step="any" inputmode="decimal" autocomplete="off">
+      <p id="range-error" class="modal-error"></p>
+      <div class="modal-actions">
+        <button id="btn-range-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-range-ok" class="btn btn-accent"><i class="ph-light ph-circle-dashed"></i> <span data-i18n="rangeDraw">Tracer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation « Nouveau plan de vol » (abandon du plan en cours) -->
+  <div id="newplan-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-file-plus"></i> <span data-i18n="newPlanTitle">Nouveau plan de vol</span></h3>
+      <p class="modal-text" data-i18n="newPlanText">Le plan de vol en cours sera abandonné. Continuer ?</p>
+      <div class="modal-actions">
+        <button id="btn-newplan-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-newplan-ok" class="btn btn-danger"><span data-i18n="newPlanConfirm">Nouveau plan</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : aimanter un point tournant sur un aéroport / navaid proche -->
+  <div id="snap-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-map-pin"></i> <span data-i18n="snapTitle">Point tournant à proximité</span></h3>
+      <p class="modal-text" id="snap-text"></p>
+      <div class="modal-actions">
+        <button id="btn-snap-cancel" class="btn"><span data-i18n="snapKeep">Garder la position</span></button>
+        <button id="btn-snap-ok" class="btn btn-accent"><i class="ph-light ph-crosshair"></i> <span data-i18n="snapPlace">Placer dessus</span></button>
       </div>
     </div>
   </div>

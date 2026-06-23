@@ -40,6 +40,11 @@ contextBridge.exposeInMainWorld('bc', {
   // Données carte (par bounding box)
   aeroportsDansBbox: (bbox) => ipcRenderer.invoke('aeroports-bbox', bbox),
   navaidsDansBbox: (bbox) => ipcRenderer.invoke('navaids-bbox', bbox),
+  aeroportParCode: (code) => ipcRenderer.invoke('aeroport-par-code', code),
+  declinaison: (lat, lon) => ipcRenderer.invoke('declinaison', { lat, lon }),
+  featureProche: (lat, lon, rayonNm) => ipcRenderer.invoke('feature-proche', { lat, lon, rayonNm }),
+  sauverPlan: (payload) => ipcRenderer.invoke('sauver-plan', payload),
+  ouvrirPlan: (payload) => ipcRenderer.invoke('ouvrir-plan', payload),
 
   // Lieux de poser des utilisateurs (base du site)
   lieux: () => ipcRenderer.invoke('lieux-all'),
