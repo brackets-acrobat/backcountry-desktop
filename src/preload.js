@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('bc', {
   connect:      () => ipcRenderer.invoke('sc-connect'),
   disconnect:   () => ipcRenderer.invoke('sc-disconnect'),
   captureNow:   (uid) => ipcRenderer.invoke('capture-now', uid),
-  envoyerTout:  (landings) => ipcRenderer.invoke('envoyer-tout', landings),
+  envoyerTout:  (payload) => ipcRenderer.invoke('envoyer-tout', payload),
   flightDiscard: () => ipcRenderer.invoke('flight-discard'),
   etatFile:     () => ipcRenderer.invoke('queue-status'),
   relancerFile: () => ipcRenderer.invoke('queue-flush'),

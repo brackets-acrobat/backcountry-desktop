@@ -78,6 +78,8 @@ let baseLayer = null;
 const BASE_LAYERS = {
   opentopomap: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', options: { maxZoom: 17, attribution: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap' } },
   openstreetmap: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', options: { maxZoom: 19, attribution: '© OpenStreetMap' } },
+  // Fond satellite identique à NavXpressVFR (Esri World Imagery).
+  satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', options: { maxZoom: 19, attribution: 'Tiles &copy; Esri' } },
 };
 
 // Couches de données MSFS (aéroports / héliports / hydrobases / navaids)
@@ -1144,6 +1146,7 @@ function ajouterControlesCarte() {
         `<div class="map-dd-panel" hidden>` +
           `<label><input type="radio" name="basemap" data-base="opentopomap"> OpenTopoMap</label>` +
           `<label><input type="radio" name="basemap" data-base="openstreetmap"> OpenStreetMap</label>` +
+          `<label><input type="radio" name="basemap" data-base="satellite"> Satellite</label>` +
         `</div>` +
       `</div>`;
     L.DomEvent.disableClickPropagation(div);
@@ -1341,6 +1344,7 @@ $('btn-apikey-save').addEventListener('click', async () => {
 const FT_PER_M = 3.280839895;
 let captureUid = null;       // uid du poser courant (cible du bouton capture)
 let flightLandings = [];     // posers du vol (reçus à la fin)
+let flightMeta = null;       // méta du vol (temps bloc, aéronef…) envoyées avec le vol
 
 function setCaptureEnabled(on) {
   $('btn-capture').disabled = !on;
@@ -1384,14 +1388,31 @@ window.bc.onCaptureState(({ canCapture, uid }) => {
   setCaptureEnabled(!!canCapture);
 });
 window.bc.onLandingRecorded(() => { /* listé en fin de vol */ });
-window.bc.onFlightEnded(({ landings }) => {
+window.bc.onFlightEnded(({ landings, flight }) => {
   flightLandings = (landings || []).map((l) => ({ ...l }));
+  flightMeta = flight || null;
   renderSendList();
+  renderFlightSummary();
   majSendModal();
   $('btn-send-no').disabled = false;
   $('discard-overlay').hidden = true;
   $('send-overlay').hidden = false;
 });
+
+// Bandeau récap du vol dans la modale d'envoi : temps de vol + nombre de posers.
+function renderFlightSummary() {
+  const el = $('send-flight-summary');
+  if (!el) return;
+  let temps = '—';
+  const sec = flightMeta && flightMeta.durationSec;
+  if (sec != null && Number.isFinite(sec) && sec >= 0) {
+    const m = Math.round(sec / 60);
+    temps = m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+  }
+  el.textContent = t('sendFlightSummary')
+    .replace('{time}', temps)
+    .replace('{n}', flightLandings.length);
+}
 
 // Liste des posers dans la modale d'envoi (sans photo = non valide, non envoyé).
 function renderSendList() {
@@ -1420,6 +1441,7 @@ function closeSendModals() {
   $('send-overlay').hidden = true;
   $('discard-overlay').hidden = true;
   flightLandings = [];
+  flightMeta = null;
 }
 
 // --- Boutons de la modale d'envoi ---
@@ -1427,7 +1449,12 @@ $('btn-send-yes').addEventListener('click', async () => {
   const st = $('send-status');
   $('btn-send-yes').disabled = true; $('btn-send-no').disabled = true;
   st.className = 'modal-status'; st.textContent = t('sending'); st.hidden = false;
-  const res = await window.bc.envoyerTout(flightLandings);
+  const res = await window.bc.envoyerTout({
+    landings: flightLandings,
+    flight: flightMeta,
+    depIcao: ($('icao-dep') && $('icao-dep').value) || '',
+    arrIcao: ($('icao-arr') && $('icao-arr').value) || '',
+  });
   st.className = 'modal-status ' + (res.ok ? 'is-ok' : 'is-error');
   st.textContent = t('sendResult')
     .replace('{n}', res.envoyes ?? 0)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data: https://*.tile.opentopomap.org https://*.tile.openstreetmap.org;">
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data: https://*.tile.opentopomap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com;">
   <title>Backcountry Pathfinders</title>
   <!-- Icônes Phosphor Light + Leaflet vendorés en local (CSP stricte, app hors-ligne) -->
   <link rel="stylesheet" href="vendor/phosphor/style.css">
@@ -174,8 +174,9 @@
   <!-- Modale : envoi groupé en fin de vol -->
   <div id="send-overlay" class="overlay" hidden>
     <div class="modal">
-      <h3><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="sendTitle">Envoyer les posers du vol ?</span></h3>
-      <p class="modal-text" data-i18n="sendIntro">Vol terminé. Voici les posers relevés pendant ce vol :</p>
+      <h3><i class="ph-light ph-cloud-arrow-up"></i> <span data-i18n="sendTitle">Envoyer les atterrissages du vol ?</span></h3>
+      <p class="modal-text" data-i18n="sendIntro">Vol terminé. Voici les atterrissages relevés pendant ce vol :</p>
+      <p id="send-flight-summary" class="send-flight-summary"></p>
       <ul id="send-list" class="send-list"></ul>
       <p id="send-status" class="modal-status" hidden></p>
       <div class="modal-actions">
@@ -189,7 +190,7 @@
   <div id="discard-overlay" class="overlay" hidden>
     <div class="modal">
       <h3><i class="ph-light ph-warning"></i> <span data-i18n="discardTitle">Ne pas envoyer ?</span></h3>
-      <p class="modal-text" data-i18n="discardText">Les posers de ce vol ne seront pas envoyés au site. Les photos restent enregistrées en local.</p>
+      <p class="modal-text" data-i18n="discardText">Les atterrissages de ce vol ne seront pas envoyés au site. Les photos restent enregistrées en local.</p>
       <div class="modal-actions">
         <button id="btn-discard-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
         <button id="btn-discard-ok" class="btn btn-danger"><span data-i18n="btnConfirmDiscard">Confirmer</span></button>

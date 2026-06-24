@@ -4,13 +4,11 @@
  */
 
 // ============================================================
-// api-client.js — envoi des relevés vers le site (POST /api/releve).
+// api-client.js — envoi des VOLS vers le site (POST /api/vol).
 //
-// Format multipart/form-data : tous les champs du relevé en form-fields
-// (profil_relief sérialisé en JSON), + un champ `uid` (id du poser, sert à
-// nommer la photo côté serveur) + un fichier `capture` optionnel (la photo).
-// Auth : header X-Api-Key. Réponse 201 → { ok, id_releve, id_lieu,
-// nouveau_lieu, capture }.
+// Un vol entier part en une requête multipart/form-data : un champ `vol` (JSON :
+// méta du vol + tableau des posers) et une photo par poser (`capture_<uid>`).
+// Auth : header X-Api-Key. Réponse 201 → { ok, id_vol, nb }.
 //
 // Pas de dépendance externe : corps multipart construit à la main.
 // Convention de retour : status 0 = échec RÉSEAU (à mettre en file).
@@ -22,12 +20,16 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
-// Envoie un relevé (+ image éventuelle). imagePath = chemin local du JPEG ou null.
-function envoyer(cfg, releve, imagePath = null) {
+// Envoie un VOL entier (méta + tous ses posers + photos) en une requête vers
+// POST /api/vol. `vol` = { date_debut, date_fin, duree_sec, aeronef,
+// depart_icao, arrivee_icao, landings:[{uid, ...champs relevé}], _captures:[{uid, path}] }.
+// Le champ multipart `vol` = JSON (sans les champs internes _*), les photos
+// sont des parts `capture_<uid>`. Convention de retour : status 0 = échec RÉSEAU.
+function envoyerVol(cfg, vol) {
   return new Promise((resolve) => {
     let url;
     try {
-      url = new URL(cfg.apiBaseUrl.replace(/\/+$/, '') + '/api/releve');
+      url = new URL(cfg.apiBaseUrl.replace(/\/+$/, '') + '/api/vol');
     } catch (e) {
       return resolve({ ok: false, status: 0, body: { erreur: 'apiBaseUrl invalide: ' + e.message } });
     }
@@ -40,22 +42,36 @@ function envoyer(cfg, releve, imagePath = null) {
       ));
     };
 
-    for (const [k, v] of Object.entries(releve)) {
-      if (k.startsWith('_')) continue;            // champs internes (_uid, _capturePath…)
-      if (v === null || v === undefined) continue;
-      const val = (k === 'profil_relief' && typeof v !== 'string') ? JSON.stringify(v) : String(v);
-      field(k, val);
-    }
-    if (releve._uid) field('uid', releve._uid);
+    // Champ `vol` : méta + posers, en retirant les champs internes (_*).
+    const cleanLanding = (l) => {
+      const out = {};
+      for (const [k, v] of Object.entries(l)) {
+        if (!k.startsWith('_') && v !== undefined) out[k] = v;
+      }
+      return out;
+    };
+    const volJson = {
+      date_debut: vol.date_debut ?? null,
+      date_fin: vol.date_fin ?? null,
+      duree_sec: vol.duree_sec ?? null,
+      aeronef: vol.aeronef ?? null,
+      depart_icao: vol.depart_icao ?? null,
+      arrivee_icao: vol.arrivee_icao ?? null,
+      landings: (vol.landings || []).map(cleanLanding),
+    };
+    field('vol', JSON.stringify(volJson));
 
-    if (imagePath && fs.existsSync(imagePath)) {
-      const img = fs.readFileSync(imagePath);
-      parts.push(Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="capture"; filename="${path.basename(imagePath)}"\r\n` +
-        'Content-Type: image/jpeg\r\n\r\n', 'utf-8'
-      ));
-      parts.push(img);
-      parts.push(Buffer.from('\r\n', 'utf-8'));
+    // Une photo par poser : part `capture_<uid>`.
+    for (const cap of (vol._captures || [])) {
+      if (cap && cap.uid && cap.path && fs.existsSync(cap.path)) {
+        const img = fs.readFileSync(cap.path);
+        parts.push(Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="capture_${cap.uid}"; filename="${path.basename(cap.path)}"\r\n` +
+          'Content-Type: image/jpeg\r\n\r\n', 'utf-8'
+        ));
+        parts.push(img);
+        parts.push(Buffer.from('\r\n', 'utf-8'));
+      }
     }
     parts.push(Buffer.from(`--${boundary}--\r\n`, 'utf-8'));
     const body = Buffer.concat(parts);
@@ -130,4 +146,4 @@ function recupererLieux(cfg) {
   });
 }
 
-module.exports = { envoyer, recupererLieux };
+module.exports = { envoyerVol, recupererLieux };

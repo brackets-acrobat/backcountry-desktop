@@ -37,6 +37,13 @@ const STOP_HOLD_MS = 1500;
 const degToRad = (d) => (d * Math.PI) / 180;
 const radToDeg = (r) => (r * 180) / Math.PI;
 
+// Parse un horodatage sim local « AAAA-MM-JJ HH:MM:SS » en ms (ou null).
+function parseSimLocal(s) {
+  if (!s) return null;
+  const ms = Date.parse(s.replace(' ', 'T'));
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function mode(counts) {
   let best = null; let bestN = -1;
   for (const [k, n] of Object.entries(counts)) { if (n > bestN) { best = k; bestN = n; } }
@@ -52,6 +59,9 @@ function createFsm({ emit = () => {} } = {}) {
   let currentUid = null;       // poser courant (cible du bouton capture)
   let lastCanCapture = null;
   let flightEnded = false;
+  // Temps de vol BLOC : du 1er décollage du vol à l'arrêt moteur final.
+  let flightStartSimLocal = null;
+  let flightStartT = 0;
 
   function newSession(f) {
     return {
@@ -148,6 +158,11 @@ function createFsm({ emit = () => {} } = {}) {
       if (!f.onGround && f.aglFt > AIRBORNE_AGL_FT) {
         airborne = true;
         flightEnded = false;          // un nouveau vol est en cours
+        // Premier décollage du vol → départ du chrono « temps bloc ».
+        if (flightStartT === 0) {
+          flightStartT = f.t;
+          flightStartSimLocal = f.simLocal || null;
+        }
       }
 
       // POSER : on touche le sol après avoir été en l'air → nouvelle session.
@@ -176,8 +191,25 @@ function createFsm({ emit = () => {} } = {}) {
       if (!flightEnded && pending.length > 0
           && f.onGround && f.groundSpeedKt < STOP_KT && f.parkingBrake && !f.engineOn) {
         flightEnded = true;
+        // Temps bloc : différence des horodatages sim (gère la pause sim), avec
+        // repli sur l'horloge réelle si l'horodatage sim manque.
+        const startMs = parseSimLocal(flightStartSimLocal);
+        const endMs = parseSimLocal(f.simLocal);
+        let durationSec = null;
+        if (startMs != null && endMs != null && endMs >= startMs) {
+          durationSec = Math.round((endMs - startMs) / 1000);
+        } else if (flightStartT) {
+          durationSec = Math.round((f.t - flightStartT) / 1000);
+        }
         emit('flight-ended', {
           landings: pending.map((p) => ({ uid: p.uid, releve: p.releve, hasCapture: p.hasCapture })),
+          flight: {
+            startSimLocal: flightStartSimLocal,
+            endSimLocal: f.simLocal || null,
+            durationSec,
+            aircraft: (f.aircraftTitle || '').trim() || null,
+            landingCount: pending.length,
+          },
         });
       }
     },
@@ -192,6 +224,7 @@ function createFsm({ emit = () => {} } = {}) {
     reset() {
       airborne = false; session = null; lastSampleT = 0; stopSince = 0;
       pending = []; currentUid = null; lastCanCapture = null; flightEnded = false;
+      flightStartSimLocal = null; flightStartT = 0;
     },
   };
 }

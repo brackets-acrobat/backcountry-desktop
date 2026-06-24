@@ -24,7 +24,7 @@ const { runExtraction: runNavaidsExtraction } = require('./extract-navaids-msfs'
 const airportsData = require('./airports-data');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
-const { envoyer, recupererLieux } = require('./api-client');
+const { envoyerVol, recupererLieux } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
 const { enfiler, compter, flush } = require('./queue');
 
@@ -68,7 +68,7 @@ function broadcastQueue() {
 // badge figé se recale sur l'état du disque.
 async function flushQueue() {
   if (config._cleConfiguree) {
-    await flush(dossiers().queue, (r) => envoyer(config, r, r._capturePath || null));
+    await flush(dossiers().queue, (vol) => envoyerVol(config, vol));
   }
   broadcastQueue();
 }
@@ -161,27 +161,45 @@ ipcMain.handle('capture-now', async (_e, uid) => {
   }
 });
 
-// Envoi groupé de tous les posers du vol (fin de vol).
-ipcMain.handle('envoyer-tout', async (_e, landings) => {
+// Envoi groupé du vol (fin de vol) : un seul POST /api/vol crée le vol + tous
+// ses posers. payload = { landings, flight, depIcao, arrIcao }.
+ipcMain.handle('envoyer-tout', async (_e, payload = {}) => {
   if (!config._cleConfiguree) {
     return { ok: false, erreur: 'Clé API non configurée (config.json).' };
   }
-  // Règle : un poser SANS photo n'est pas valide → on ne l'envoie pas.
+  const { landings, flight, depIcao, arrIcao } = payload;
+  // Règle : un poser SANS photo n'est pas valide → le vol n'envoie que les
+  // posers photographiés. Sans aucune photo, rien n'est envoyé.
   const valides = (landings || []).filter((l) => l.hasCapture);
-  let envoyes = 0; let enfiles = 0; let echecs = 0;
-  for (const l of valides) {
-    const imagePath = cheminCapture(l.uid);
-    const payload = { ...l.releve, _uid: l.uid, _capturePath: imagePath };
-    const res = await envoyer(config, payload, imagePath);
-    if (res.ok) {
-      envoyes++;
-    } else if (!res.status || res.status === 0) {
-      enfiler(dossiers().queue, payload);   // hors-ligne → file
-      enfiles++;
-    } else {
-      echecs++;                              // refus serveur (4xx/5xx)
-    }
+  if (valides.length === 0) {
+    fsm.reset();
+    return { ok: true, envoyes: 0, enfiles: 0, echecs: 0 };
   }
+
+  // Construit le payload du vol (méta + posers + chemins des photos).
+  const vol = {
+    _uid: 'vol_' + valides[0].uid,
+    date_debut: (flight && flight.startSimLocal) || null,
+    date_fin: (flight && flight.endSimLocal) || null,
+    duree_sec: flight ? (flight.durationSec ?? null) : null,
+    aeronef: (flight && flight.aircraft) || null,
+    depart_icao: (depIcao || '').trim() || null,
+    arrivee_icao: (arrIcao || '').trim() || null,
+    landings: valides.map((l) => ({ uid: l.uid, ...l.releve })),
+    _captures: valides.map((l) => ({ uid: l.uid, path: cheminCapture(l.uid) })),
+  };
+
+  let envoyes = 0; let enfiles = 0; let echecs = 0;
+  const res = await envoyerVol(config, vol);
+  if (res.ok) {
+    envoyes = vol.landings.length;
+  } else if (!res.status || res.status === 0) {
+    enfiler(dossiers().queue, vol);   // hors-ligne → file (le vol entier)
+    enfiles = vol.landings.length;
+  } else {
+    echecs = vol.landings.length;     // refus serveur (4xx/5xx)
+  }
+
   fsm.reset();
   broadcastQueue();
   return { ok: echecs === 0, envoyes, enfiles, echecs };
