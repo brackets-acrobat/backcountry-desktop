@@ -108,9 +108,31 @@ const planeIcon = L.divIcon({
   iconAnchor: [20, 20],   // centre de l'image sur la position
 });
 
+// Barre d'échelle à trois unités (km, miles, NM). Leaflet ne fournit que le
+// métrique et l'impérial : on étend L.Control.Scale pour ajouter une ligne NM
+// (1 NM = 1852 m). Indépendante du fond : valable sur satellite, CARTO, OSM, topo.
+const ScaleTriple = L.Control.Scale.extend({
+  options: { metric: true, imperial: true, nautical: true },
+  _addScales(options, className, container) {
+    L.Control.Scale.prototype._addScales.call(this, options, className, container);
+    if (options.nautical) { this._nScale = L.DomUtil.create('div', className, container); }
+  },
+  _updateScales(maxMeters) {
+    L.Control.Scale.prototype._updateScales.call(this, maxMeters);
+    if (this.options.nautical && maxMeters) { this._updateNautical(maxMeters); }
+  },
+  _updateNautical(maxMeters) {
+    const maxNm = maxMeters / 1852;
+    if (maxNm < 1) { this._updateScale(this._nScale, '', 0); return; }  // trop zoomé : pas de NM
+    const nm = this._getRoundNum(maxNm);
+    this._updateScale(this._nScale, nm + ' NM', nm / maxNm);
+  },
+});
+
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([46.8, 2.5], 5);  // vue par défaut (France)
   appliquerFond(localStorage.getItem('bc-basemap') || 'opentopomap');  // OpenTopoMap par défaut
+  new ScaleTriple({ position: 'bottomleft', maxWidth: 120 }).addTo(map);  // échelle km / mi / NM
   // Suivi : pendant un déplacement utilisateur, on suspend le centrage ; 5 s
   // après la fin du déplacement, on recentre sur l'avion. En mode libre, rien.
   map.on('dragstart', () => {
