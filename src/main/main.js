@@ -27,6 +27,7 @@ const { createFsm } = require('./fsm');
 const { envoyerVol, recupererLieux } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
 const { enfiler, compter, flush } = require('./queue');
+const { setupAutoUpdater, quitAndInstall } = require('./updater');
 
 // Centralise les données d'Electron (cache, localStorage, session…) dans un
 // sous-dossier du dossier de travail au lieu d'AppData → tout au même endroit
@@ -367,10 +368,16 @@ ipcMain.handle('declinaison', async (_e, { lat, lon } = {}) => {
 // Lieux de poser des utilisateurs (depuis la base du site, GET /api/lieux).
 ipcMain.handle('lieux-all', async () => recupererLieux(config));
 
+// Redémarre et installe la mise à jour téléchargée (clic sur la bannière).
+ipcMain.handle('update-install', async () => { quitAndInstall(); return { ok: true }; });
+
 app.whenReady().then(() => {
   createWindow();
   flushQueue();
   setInterval(flushQueue, 60000);
+  // Auto-update seulement en app packagée : en dev, electron-updater n'a pas de
+  // dev-app-update.yml et lèverait une erreur inutile.
+  if (app.isPackaged) setupAutoUpdater(broadcast);
 });
 
 app.on('window-all-closed', () => {

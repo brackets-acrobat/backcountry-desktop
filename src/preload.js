@@ -49,7 +49,11 @@ contextBridge.exposeInMainWorld('bc', {
   // Lieux de poser des utilisateurs (base du site)
   lieux: () => ipcRenderer.invoke('lieux-all'),
 
+  // Mise à jour automatique (electron-updater)
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+
   // Abonnements (main → renderer). Chaque appel renvoie une fonction de désabonnement.
+  onUpdateStatus:    (cb) => subscribe('update-status', cb),
   onConfig:          (cb) => subscribe('app-config', cb),
   onStatus:          (cb) => subscribe('sc-status', cb),
   onScan:            (cb) => subscribe('sc-scan', cb),

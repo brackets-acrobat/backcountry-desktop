@@ -37,7 +37,9 @@ function cheminSettings() {
 }
 
 const DEFAULTS = {
-  apiBaseUrl: 'http://localhost/backcountry',
+  // Défaut de l'app distribuée : la prod. En dev, un config.json local (gitignoré,
+  // non packagé) peut pointer ailleurs (ex. http://localhost/backcountry).
+  apiBaseUrl: 'https://pathfinders.sixk.me',
   apiKey: '',
   captureDir: '',
   captureMonitor: 0,

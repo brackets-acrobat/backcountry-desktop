@@ -184,6 +184,11 @@ const TRANSLATIONS = {
     lieuRating: 'Note',
     lieuDifficulty: 'Difficulté',
     lieuDetail: 'Voir le détail',
+
+    // Bannière de mise à jour (electron-updater)
+    updateDownloading: 'Téléchargement de la mise à jour… {percent} %',
+    updateReady: 'Mise à jour {version} prête à être installée.',
+    updateRestart: 'Redémarrer et installer',
   },
 
   en: {
@@ -355,6 +360,11 @@ const TRANSLATIONS = {
     lieuRating: 'Rating',
     lieuDifficulty: 'Difficulty',
     lieuDetail: 'View details',
+
+    // Update banner (electron-updater)
+    updateDownloading: 'Downloading update… {percent}%',
+    updateReady: 'Update {version} ready to install.',
+    updateRestart: 'Restart and install',
   },
 };
 

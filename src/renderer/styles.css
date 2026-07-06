@@ -662,3 +662,27 @@ main { flex: 1; min-height: 0; padding: 0; position: relative; }
 .send-list .sl-photo.invalid { color: var(--danger); }
 .send-list li.sl-invalid { opacity: .6; border-style: dashed; }
 .send-list li.sl-invalid .sl-coords { color: var(--muted); }
+
+/* --- Bannière de mise à jour (electron-updater) --- */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  color: var(--ink);
+  font-size: .9rem;
+}
+.update-banner[hidden] { display: none; }
+.update-banner i[class^="ph-"] { font-size: 20px; color: var(--accent); flex: none; }
+.update-banner-text { white-space: nowrap; }
+.update-banner .btn-accent { flex: none; }

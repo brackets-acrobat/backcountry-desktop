@@ -6,7 +6,9 @@
   "author": "Cyril MILANI",
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder",
+    "publish": "electron-builder --publish always"
   },
   "keywords": [
     "electron",
@@ -17,10 +19,51 @@
     "vfr"
   ],
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "geomagnetism": "^0.2.0",
     "node-simconnect": "^4.2.0"
   },
   "devDependencies": {
-    "electron": "^30.5.1"
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "me.sixk.pathfinders.desktop",
+    "productName": "Backcountry Pathfinders",
+    "copyright": "Copyright © 2026 Cyril MILANI — GPL-3.0-or-later",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*",
+      "!tools/**",
+      "!dist/**",
+      "!config.json",
+      "!config.example.json",
+      "!**/*.log",
+      "!README.md"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Backcountry Pathfinders",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "brackets-acrobat",
+      "repo": "backcountry-desktop"
+    }
   }
 }
