@@ -1,6 +1,6 @@
 {
   "name": "backcountry-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Backcountry Pathfinders — application desktop d'acquisition (évaluateur de pistes de brousse pour MSFS 2024, via SimConnect)",
   "main": "src/main/main.js",
   "author": "Cyril MILANI",
