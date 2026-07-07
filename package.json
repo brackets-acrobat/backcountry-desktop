@@ -32,6 +32,7 @@
     "appId": "me.sixk.pathfinders.desktop",
     "productName": "Backcountry Pathfinders",
     "copyright": "Copyright © 2026 Cyril MILANI — GPL-3.0-or-later",
+    "artifactName": "Backcountry-Pathfinders-Setup-${version}.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
