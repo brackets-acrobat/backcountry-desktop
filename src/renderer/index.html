@@ -27,8 +27,17 @@
         <div id="import-dropdown" class="dropdown" hidden>
           <button id="menu-import-airports" class="dropdown-item"><span data-i18n="menuImportAirports">Aéroports MSFS2024</span></button>
           <button id="menu-import-navaids" class="dropdown-item"><span data-i18n="menuImportNavaids">Navaids MSFS2024</span></button>
+          <button id="menu-import-elevation" class="dropdown-item"><span data-i18n="menuImportElevation">Données d'élévation</span></button>
         </div>
       </div>
+      <!-- Afficher / masquer le tableau des legs (panneau « Plan de vol ») -->
+      <button id="btn-legs" class="btn btn-icon" data-i18n-title="legsToggle" title="Afficher plan de vol" aria-pressed="false">
+        <i class="ph-light ph-table"></i>
+      </button>
+      <!-- Afficher / masquer le profil vertical (relief le long du plan) -->
+      <button id="btn-profil" class="btn btn-icon" data-i18n-title="vertProfileToggle" title="Afficher le profil vertical" aria-pressed="false">
+        <i class="ph-light ph-chart-line"></i>
+      </button>
     </div>
     <div class="conn">
       <button id="btn-connect" class="btn btn-state-off"><i class="ph-light ph-plugs"></i> Connecter MSFS2024</button>
@@ -77,6 +86,37 @@
       <i class="ph-light ph-arrow-fat-up wind-arrow" id="wind-arrow"></i>
       <span class="wind-text" id="wind-text">—</span>
     </div>
+    <!-- Panneau « Plan de vol » : tableau des legs, sur le tiers droit de la carte -->
+    <aside id="legs-panel" class="legs-panel" hidden>
+      <div class="legs-head">
+        <span class="legs-title"><i class="ph-light ph-path"></i> <span data-i18n="legsTitle">Plan de vol</span></span>
+        <span class="legs-total"><span data-i18n="legsTotal">Distance totale</span> : <span id="legs-total-val" class="legs-total-num">—</span></span>
+        <button id="legs-close" class="legs-close" type="button" data-i18n-title="legsClose" title="Masquer"><i class="ph-light ph-x"></i></button>
+      </div>
+      <div class="legs-scroll">
+        <table class="legs-table">
+          <thead>
+            <tr>
+              <th data-i18n="legsColFrom">Départ</th>
+              <th data-i18n="legsColTo">Arrivée</th>
+              <th class="legs-num" data-i18n="legsColHdg">Cap</th>
+              <th class="legs-num" data-i18n="legsColAlt">Altitude</th>
+              <th class="legs-num" data-i18n="legsColDist">Dist.</th>
+            </tr>
+          </thead>
+          <tbody id="legs-tbody"></tbody>
+        </table>
+        <p id="legs-empty" class="legs-empty" data-i18n="legsEmpty" hidden>Aucun plan de vol.</p>
+      </div>
+    </aside>
+    <!-- Profil vertical : bande en bas de la carte (relief GLOBE + altitudes prévues) -->
+    <section id="vp-panel" class="vp-panel" hidden>
+      <div class="vp-head">
+        <span class="vp-title"><i class="ph-light ph-chart-line"></i> <span data-i18n="vertProfileTitle">Profil vertical</span></span>
+        <button id="vp-close" class="vp-close" type="button" data-i18n-title="vertProfileClose" title="Masquer"><i class="ph-light ph-x"></i></button>
+      </div>
+      <div id="vertical-profile-graph" class="vp-graph"></div>
+    </section>
   </main>
 
   <!-- Barre d'état : indice de configuration de l'API -->
@@ -153,6 +193,32 @@
       <p id="navaids-progress-summary" class="modal-status" hidden></p>
       <div class="modal-actions">
         <button id="btn-navaids-progress-close" class="btn" disabled><span data-i18n="btnClose">Fermer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : confirmation de ré-import des données d'élévation (déjà présentes) -->
+  <div id="elev-confirm-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-mountains"></i> <span data-i18n="elevConfirmTitle">Re-télécharger les données ?</span></h3>
+      <p class="modal-text" data-i18n="elevConfirmMsg">Les données d'élévation semblent déjà installées. Re-télécharger l'archive et remplacer les fichiers existants ?</p>
+      <div class="modal-actions">
+        <button id="btn-elev-confirm-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-elev-confirm-ok" class="btn btn-accent"><i class="ph-light ph-download-simple"></i> <span data-i18n="elevConfirmBtn">Re-télécharger</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : progression de l'import des données d'élévation -->
+  <div id="elev-progress-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-mountains"></i> <span data-i18n="elevProgressTitle">Import des données d'élévation</span></h3>
+      <p id="elev-progress-phase" class="modal-text">…</p>
+      <div class="progress-bar"><div id="elev-progress-bar-fill" class="progress-bar-fill"></div></div>
+      <p id="elev-progress-size" class="progress-count">—</p>
+      <p id="elev-progress-summary" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-elev-progress-close" class="btn" disabled><span data-i18n="btnClose">Fermer</span></button>
       </div>
     </div>
   </div>

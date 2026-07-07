@@ -15,6 +15,8 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const extract = require('extract-zip');   // extraction ZIP (données d'élévation GLOBE)
 const { open: scOpen, Protocol: SCProtocol } = require('node-simconnect');
 const geomagnetism = require('geomagnetism');   // modèle magnétique mondial (WMM)
 
@@ -298,6 +300,256 @@ ipcMain.handle('extraire-navaids-msfs', async (event) => {
   } finally {
     _navaidsExtractRunning = false;
   }
+});
+
+// ============================================================
+// Import des données d'élévation (dataset GLOBE ~1 km, all10g.zip). Repris de
+// NavXpressVFR : télécharge l'archive NOAA, l'extrait, aplatit le sous-dossier
+// all10/ dans Documents/Backcountry Pathfinders/elevation, supprime l'archive.
+// Progression relayée au renderer via 'elevation-progress'.
+// ============================================================
+
+// Téléchargement HTTPS vers un fichier, avec suivi des redirections et progression.
+function downloadToFile(url, destPath, onProgress, maxRedirects = 5) {
+  return new Promise((resolve, reject) => {
+    const doGet = (currentUrl, redirectsLeft) => {
+      const req = https.get(currentUrl, { headers: { 'User-Agent': 'BackcountryPathfinders-Desktop' } }, (res) => {
+        const { statusCode, headers } = res;
+        if (statusCode >= 300 && statusCode < 400 && headers.location) {
+          if (redirectsLeft <= 0) { res.resume(); reject(new Error('Trop de redirections pour ' + url)); return; }
+          res.resume();
+          doGet(new URL(headers.location, currentUrl).toString(), redirectsLeft - 1);
+          return;
+        }
+        if (statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + statusCode + ' pour ' + currentUrl)); return; }
+
+        const total = parseInt(headers['content-length'] || '0', 10);
+        let received = 0;
+        const out = fs.createWriteStream(destPath);
+        res.on('data', (chunk) => { received += chunk.length; if (onProgress) onProgress(received, total); });
+        res.on('error', (e) => { out.destroy(); reject(e); });
+        out.on('error', (e) => reject(e));
+        out.on('finish', () => out.close(() => resolve({ received, total })));
+        res.pipe(out);
+      });
+      req.on('error', reject);
+      req.setTimeout(90000, () => req.destroy(new Error('Timeout (90 s sans données) pour ' + currentUrl)));
+    };
+    doGet(url, maxRedirects);
+  });
+}
+
+function elevationDir() { return path.join(dossierBase(), 'elevation'); }
+
+// Les tuiles GLOBE (bandes N/moyennes/S) sont-elles installées ?
+function elevationTilesPresent() {
+  const dir = elevationDir();
+  return ['a10g', 'g10g', 'p10g'].every((t) => fs.existsSync(path.join(dir, t)));
+}
+
+ipcMain.handle('elevation-existe', async () => {
+  try { return elevationTilesPresent(); } catch (_) { return false; }
+});
+
+const ELEVATION_ZIP_URL = 'https://www.ngdc.noaa.gov/mgg/topo/DATATILES/elev/all10g.zip';
+let _elevationImportRunning = false;
+ipcMain.handle('importer-elevation', async (event) => {
+  if (_elevationImportRunning) return { ok: false, error: 'Un import est déjà en cours.' };
+  _elevationImportRunning = true;
+  const wc = event.sender;
+  const dir = elevationDir();
+  const zipPath = path.join(dir, 'all10g.zip');
+  const send = (p) => { if (wc && !wc.isDestroyed()) wc.send('elevation-progress', p); };
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    resetGlobeFds();   // libère d'éventuels descripteurs GLOBE ouverts (cas du réimport)
+    send({ type: 'start' });
+
+    // 1) Téléchargement (progression limitée à ~4 msg/s)
+    let lastSent = 0;
+    await downloadToFile(ELEVATION_ZIP_URL, zipPath, (received, total) => {
+      const now = Date.now();
+      if (now - lastSent >= 250 || (total && received >= total)) {
+        lastSent = now;
+        send({ type: 'download', received, total });
+      }
+    });
+
+    // 2) Extraction de l'archive
+    send({ type: 'extract' });
+    await extract(zipPath, { dir });
+
+    // 3) Aplatissement : déplace elevation/all10/* vers elevation/
+    send({ type: 'flatten' });
+    const all10Dir = path.join(dir, 'all10');
+    if (fs.existsSync(all10Dir)) {
+      for (const name of fs.readdirSync(all10Dir)) {
+        const src = path.join(all10Dir, name);
+        const dst = path.join(dir, name);
+        try { if (fs.existsSync(dst)) fs.rmSync(dst, { force: true }); } catch (_) {}
+        fs.renameSync(src, dst);
+      }
+      try { fs.rmSync(all10Dir, { recursive: true, force: true }); } catch (_) {}
+    }
+
+    // 4) Nettoyage de l'archive
+    try { fs.rmSync(zipPath, { force: true }); } catch (_) {}
+
+    const ok = elevationTilesPresent();
+    send({ type: 'done', dir, ok });
+    return { ok, dir };
+  } catch (err) {
+    console.error('[Elevation] Import échec :', err);
+    try { if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true }); } catch (_) {}
+    send({ type: 'error', error: (err && err.message) || String(err) });
+    return { ok: false, error: (err && err.message) || String(err) };
+  } finally {
+    _elevationImportRunning = false;
+  }
+});
+
+// ============================================================
+// Lecture du relief (dataset GLOBE 30 arc-sec, ~1 km) + profil vertical.
+// 16 tuiles a10g..p10g pavant le globe ; entiers 16-bit signés little-endian, en
+// mètres, depuis le coin NO de chaque tuile. Océan / no-data = -500. Repris de
+// NavXpressVFR.
+// ============================================================
+const GLOBE_COLS = 10800;          // colonnes par tuile (90° à 30")
+const GLOBE_CELL = 1 / 120;        // degrés par cellule (30 arc-sec)
+const GLOBE_BANDS = [
+  { latMax: 90,  rows: 4800, tiles: ['a10g', 'b10g', 'c10g', 'd10g'] }, // 50°N..90°N
+  { latMax: 50,  rows: 6000, tiles: ['e10g', 'f10g', 'g10g', 'h10g'] }, // 0°..50°N
+  { latMax: 0,   rows: 6000, tiles: ['i10g', 'j10g', 'k10g', 'l10g'] }, // 50°S..0°
+  { latMax: -50, rows: 4800, tiles: ['m10g', 'n10g', 'o10g', 'p10g'] }, // 90°S..50°S
+];
+const _globeFds = new Map();   // nom tuile -> descripteur (null si fichier absent)
+
+function _globeFd(tile) {
+  if (_globeFds.has(tile)) return _globeFds.get(tile);
+  let fd = null;
+  try { fd = fs.openSync(path.join(elevationDir(), tile), 'r'); } catch (_) { fd = null; }
+  _globeFds.set(tile, fd);
+  return fd;
+}
+
+// Élévation en mètres à (lat, lon). null si tuile absente, 0 pour océan/no-data.
+const _globeBuf = Buffer.alloc(2);
+function lireElevation(lat, lon) {
+  if (!isFinite(lat) || !isFinite(lon)) return 0;
+  const la = Math.max(-90, Math.min(90, lat));
+  const lo = ((lon + 180) % 360 + 360) % 360 - 180;
+  let b;
+  if (la >= 50) b = 0; else if (la >= 0) b = 1; else if (la >= -50) b = 2; else b = 3;
+  const band = GLOBE_BANDS[b];
+  let g = Math.floor((lo + 180) / 90);
+  if (g < 0) g = 0; else if (g > 3) g = 3;
+  const fd = _globeFd(band.tiles[g]);
+  if (fd == null) return null;
+  let row = Math.floor((band.latMax - la) / GLOBE_CELL);
+  if (row < 0) row = 0; else if (row >= band.rows) row = band.rows - 1;
+  let col = Math.floor((lo - (-180 + g * 90)) / GLOBE_CELL);
+  if (col < 0) col = 0; else if (col >= GLOBE_COLS) col = GLOBE_COLS - 1;
+  try { fs.readSync(fd, _globeBuf, 0, 2, (row * GLOBE_COLS + col) * 2); } catch (_) { return null; }
+  const v = _globeBuf.readInt16LE(0);
+  return v <= -500 ? 0 : v;
+}
+
+// Distance grand-cercle en milles nautiques.
+function _distNM(aLat, aLon, bLat, bLon) {
+  const R = 3440.065, toRad = Math.PI / 180;
+  const dLat = (bLat - aLat) * toRad, dLon = (bLon - aLon) * toRad;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * toRad) * Math.cos(bLat * toRad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+// Ferme et oublie les descripteurs GLOBE ouverts (avant un (ré)import).
+function resetGlobeFds() {
+  for (const fd of _globeFds.values()) {
+    if (fd != null) { try { fs.closeSync(fd); } catch (_) {} }
+  }
+  _globeFds.clear();
+}
+
+// Profil vertical : échantillonne le relief GLOBE le long du plan de vol.
+// payload = { waypoints: [{lat,lon,name}], legAltitudes: [null, alt1, alt2, ...] }
+ipcMain.handle('profil-vertical', async (_e, payload) => {
+  const wps = Array.isArray(payload && payload.waypoints) ? payload.waypoints : [];
+  const legAlt = Array.isArray(payload && payload.legAltitudes) ? payload.legAltitudes : [];
+  if (wps.length < 2) return { ok: false, dist: [], terrain: [], planned: [], waypoints: [] };
+
+  const M2FT = 3.28084;
+  const ALT_FALLBACK = 2500;
+
+  const legDist = [];
+  let totalNM = 0;
+  for (let i = 1; i < wps.length; i++) {
+    const d = _distNM(wps[i - 1].lat, wps[i - 1].lon, wps[i].lat, wps[i].lon);
+    legDist[i] = d;
+    totalNM += d;
+  }
+
+  const MAX_SAMPLES = 1500;
+  const totalKm = totalNM * 1.852;
+  let stepKm = 1.0;
+  if (totalKm / stepKm > MAX_SAMPLES) stepKm = totalKm / MAX_SAMPLES;
+
+  // Altitude minimale de sécurité (par leg) : relief max sous l'axe + marge selon
+  // la rugosité (plaine +1000 ft, montagne +1500 ft si amplitude > 1500 ft).
+  const MARGIN_PLAIN_FT = 1000, MARGIN_MOUNTAIN_FT = 1500, MOUNTAIN_AMPL_FT = 1500;
+
+  const dist = [], terrain = [], planned = [], waypoints = [], legs = [];
+  let cumNM = 0, gotData = false, summitFt = -Infinity, summitD = 0;
+  waypoints.push({ d: 0, name: (wps[0].name || '') });
+
+  for (let i = 1; i < wps.length; i++) {
+    const a = wps[i - 1], b = wps[i];
+    const legNM = legDist[i];
+    const altFt = (legAlt[i] != null ? legAlt[i] : ALT_FALLBACK);
+    const nSeg = Math.max(1, Math.round((legNM * 1.852) / stepKm));
+    let legMax = -Infinity, legMin = Infinity;
+    for (let s = (i === 1 ? 0 : 1); s <= nSeg; s++) {
+      const f = s / nSeg;
+      const lat = a.lat + (b.lat - a.lat) * f;
+      const lon = a.lon + (b.lon - a.lon) * f;
+      const eRaw = lireElevation(lat, lon);
+      if (eRaw != null) gotData = true;
+      const terrFt = (eRaw == null ? 0 : eRaw) * M2FT;
+      const d = cumNM + legNM * f;
+      dist.push(d); terrain.push(terrFt); planned.push(altFt);
+      if (terrFt > legMax) legMax = terrFt;
+      if (terrFt < legMin) legMin = terrFt;
+      if (terrFt > summitFt) { summitFt = terrFt; summitD = d; }
+    }
+    const terrMaxFt = (legMax === -Infinity ? 0 : legMax);
+    const amplitudeFt = (legMax === -Infinity ? 0 : legMax - legMin);
+    const mountain = amplitudeFt > MOUNTAIN_AMPL_FT;
+    const marginFt = mountain ? MARGIN_MOUNTAIN_FT : MARGIN_PLAIN_FT;
+    const safeAltFt = Math.ceil((terrMaxFt + marginFt) / 100) * 100;
+    legs.push({
+      i, dStart: cumNM, dEnd: cumNM + legNM,
+      name0: (a.name || ''), name1: (b.name || ''),
+      terrMaxFt: Math.round(terrMaxFt), amplitudeFt: Math.round(amplitudeFt),
+      mountain, marginFt, safeAltFt, plannedFt: Math.round(altFt),
+      breach: altFt < safeAltFt, clearanceFt: Math.round(altFt - terrMaxFt),
+    });
+    cumNM += legNM;
+    waypoints.push({ d: cumNM, name: (b.name || '') });
+  }
+
+  if (!gotData) return { ok: false, reason: 'no-data', dist: [], terrain: [], planned: [], waypoints: [] };
+
+  let minMargin = null;
+  for (const lg of legs) {
+    if (minMargin == null || lg.clearanceFt < minMargin.clearanceFt) {
+      minMargin = { clearanceFt: lg.clearanceFt, name0: lg.name0, name1: lg.name1, breach: lg.breach };
+    }
+  }
+  const summary = {
+    summitFt: Math.round(summitFt === -Infinity ? 0 : summitFt),
+    summitD, minMargin, anyBreach: legs.some((lg) => lg.breach),
+  };
+  return { ok: true, totalNM, dist, terrain, planned, waypoints, legs, summary };
 });
 
 // --- Données carte : aéroports / navaids par bounding box ---

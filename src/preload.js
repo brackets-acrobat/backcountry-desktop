@@ -37,6 +37,14 @@ contextBridge.exposeInMainWorld('bc', {
   msfsExtraireNavaids: () => ipcRenderer.invoke('extraire-navaids-msfs'),
   onMsfsNavaidsProgress: (cb) => subscribe('msfs-navaids-progress', cb),
 
+  // Import des données d'élévation (GLOBE all10g.zip)
+  elevationExiste: () => ipcRenderer.invoke('elevation-existe'),
+  importerElevation: () => ipcRenderer.invoke('importer-elevation'),
+  onElevationProgress: (cb) => subscribe('elevation-progress', cb),
+
+  // Profil vertical (relief GLOBE le long du plan de vol)
+  profilVertical: (payload) => ipcRenderer.invoke('profil-vertical', payload),
+
   // Données carte (par bounding box)
   aeroportsDansBbox: (bbox) => ipcRenderer.invoke('aeroports-bbox', bbox),
   navaidsDansBbox: (bbox) => ipcRenderer.invoke('navaids-bbox', bbox),

@@ -45,6 +45,7 @@ const TRANSLATIONS = {
     ctxSetDepPoint: 'Définir comme lieu de départ',
     ctxSetArrPoint: 'Définir comme lieu d\'arrivée',
     ctxDeleteWp: 'Supprimer ce point tournant',
+    ctxSetActiveLeg: 'Rendre ce leg actif',
     ctxRangeCircle: 'Cercle de portée',
     ctxRangeCircleNavaid: 'Cercle de portée du navaid',
     ctxRangeDeleteOne: 'Supprimer ce cercle de portée',
@@ -165,6 +166,20 @@ const TRANSLATIONS = {
     navaidsExtractEmpty: 'Aucun navaid extrait. Vérifiez que MSFS 2024 tourne avec un vol en cours.',
     navaidsExtractError: 'Extraction échouée : {msg}',
 
+    // Import des données d'élévation (GLOBE all10g.zip)
+    menuImportElevation: 'Données d\'élévation',
+    elevConfirmTitle: 'Re-télécharger les données ?',
+    elevConfirmMsg: 'Les données d\'élévation semblent déjà installées (~1,8 Go). Re-télécharger l\'archive (~307 Mo) et remplacer les fichiers existants ?',
+    elevConfirmBtn: 'Re-télécharger',
+    elevProgressTitle: 'Import des données d\'élévation',
+    elevPhaseStarting: 'Préparation…',
+    elevPhaseDownloading: 'Téléchargement de all10g.zip…',
+    elevPhaseExtracting: 'Extraction des tuiles (~1,8 Go)…',
+    elevPhaseFlattening: 'Organisation des fichiers…',
+    elevProgressDone: 'Données d\'élévation installées.',
+    elevProgressDoneDir: 'Dossier : {dir}',
+    elevProgressError: 'Échec de l\'import',
+
     // Contrôle des couches de la carte
     layersTitle: 'Couches',
     layerAirports: 'Aéroports',
@@ -174,6 +189,34 @@ const TRANSLATIONS = {
     layerLieux: 'Lieux d\'atterrissage',
     basemapTitle: 'Fond de carte',
     followTitle: 'Suivre l\'avion',
+
+    // Panneau « Plan de vol » (tableau des legs)
+    legsToggle: 'Afficher plan de vol',
+    legsClose: 'Masquer le plan de vol',
+    legsTitle: 'Plan de vol',
+    legsTotal: 'Distance totale',
+    legsColFrom: 'Départ',
+    legsColTo: 'Arrivée',
+    legsColHdg: 'Cap',
+    legsColAlt: 'Altitude',
+    legsColDist: 'Dist.',
+    legsEmpty: 'Aucun plan de vol.',
+    legsDeclHint: 'Déclinaison magnétique {d}° (prise en compte dans le cap)',
+
+    // Profil vertical (relief GLOBE le long du plan de vol)
+    vertProfileToggle: 'Afficher le profil vertical',
+    vertProfileClose: 'Masquer le profil vertical',
+    vertProfileTitle: 'Profil vertical',
+    vertProfileEmpty: 'Créez un plan de vol (départ + arrivée) pour afficher le profil vertical.',
+    vertProfileNoData: 'Relief indisponible. Importez d\'abord les données d\'élévation (menu Importer → Données d\'élévation).',
+    vertProfileTerrain: 'Relief',
+    vertProfilePlanned: 'Alt. prévue',
+    vertProfileGround: 'Sol',
+    vertProfilePlannedFull: 'Altitude prévue',
+    vertProfileSafe: 'Alt. sécu',
+    vertProfileSafeFull: 'Altitude de sécurité',
+    vertProfileSummit: 'Sommet route',
+    vertProfileMinMargin: 'Marge mini',
 
     // Popup d'un lieu d'atterrissage (couche « Lieux d'atterrissage »)
     lieuUntitled: 'Lieu',
@@ -222,6 +265,7 @@ const TRANSLATIONS = {
     ctxSetDepPoint: 'Set as departure point',
     ctxSetArrPoint: 'Set as arrival point',
     ctxDeleteWp: 'Delete this turning point',
+    ctxSetActiveLeg: 'Set this leg as active',
     ctxRangeCircle: 'Range ring',
     ctxRangeCircleNavaid: 'Navaid range ring',
     ctxRangeDeleteOne: 'Delete this range ring',
@@ -341,6 +385,20 @@ const TRANSLATIONS = {
     navaidsExtractEmpty: 'No navaid extracted. Make sure MSFS 2024 is running with a flight loaded.',
     navaidsExtractError: 'Extraction failed: {msg}',
 
+    // Elevation data import (GLOBE all10g.zip)
+    menuImportElevation: 'Elevation data',
+    elevConfirmTitle: 'Re-download the data?',
+    elevConfirmMsg: 'Elevation data appears to be already installed (~1.8 GB). Re-download the archive (~307 MB) and replace the existing files?',
+    elevConfirmBtn: 'Re-download',
+    elevProgressTitle: 'Elevation data import',
+    elevPhaseStarting: 'Preparing…',
+    elevPhaseDownloading: 'Downloading all10g.zip…',
+    elevPhaseExtracting: 'Extracting tiles (~1.8 GB)…',
+    elevPhaseFlattening: 'Organizing files…',
+    elevProgressDone: 'Elevation data installed.',
+    elevProgressDoneDir: 'Folder: {dir}',
+    elevProgressError: 'Import failed',
+
     // Map layers control
     layersTitle: 'Layers',
     layerAirports: 'Airports',
@@ -352,6 +410,34 @@ const TRANSLATIONS = {
     followTitle: 'Follow aircraft',
 
     // Landing-spot popup ("Landing spots" layer)
+    // Flight plan panel (legs table)
+    legsToggle: 'Show flight plan',
+    legsClose: 'Hide flight plan',
+    legsTitle: 'Flight plan',
+    legsTotal: 'Total distance',
+    legsColFrom: 'From',
+    legsColTo: 'To',
+    legsColHdg: 'Hdg',
+    legsColAlt: 'Altitude',
+    legsColDist: 'Dist.',
+    legsEmpty: 'No flight plan.',
+    legsDeclHint: 'Magnetic declination {d}° (applied to the heading)',
+
+    // Vertical profile (GLOBE terrain along the flight plan)
+    vertProfileToggle: 'Show vertical profile',
+    vertProfileClose: 'Hide vertical profile',
+    vertProfileTitle: 'Vertical profile',
+    vertProfileEmpty: 'Create a flight plan (departure + arrival) to display the vertical profile.',
+    vertProfileNoData: 'Terrain unavailable. Import the elevation data first (Import menu → Elevation data).',
+    vertProfileTerrain: 'Terrain',
+    vertProfilePlanned: 'Planned alt.',
+    vertProfileGround: 'Ground',
+    vertProfilePlannedFull: 'Planned altitude',
+    vertProfileSafe: 'Safe alt.',
+    vertProfileSafeFull: 'Safe altitude',
+    vertProfileSummit: 'Route summit',
+    vertProfileMinMargin: 'Min. clearance',
+
     lieuUntitled: 'Spot',
     lieuCountry: 'Country',
     lieuSurface: 'Surface',
