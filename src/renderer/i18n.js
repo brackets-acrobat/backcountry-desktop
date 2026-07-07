@@ -232,6 +232,15 @@ const TRANSLATIONS = {
     updateDownloading: 'Téléchargement de la mise à jour… {percent} %',
     updateReady: 'Mise à jour {version} prête à être installée.',
     updateRestart: 'Redémarrer et installer',
+
+    // Modale « À propos » (bouton « ? » du header)
+    btnAboutTooltip: 'À propos',
+    aboutTitle: 'À propos',
+    aboutTagline: 'La communauté des pilotes de brousse sur Microsoft Flight Simulator 2024. Découvrez les derniers lieux de poser relevés et l\'actualité du projet.',
+    aboutLicense: 'Ce logiciel est distribué sous licence GPL-3.0 ou ultérieure.',
+    aboutSource: 'Le code source de cette application est disponible sur <a href="https://github.com/brackets-acrobat/backcountry-desktop" target="_blank" rel="noopener">GitHub</a>.',
+    aboutCopyright: 'Copyright 2026 Cyril MILANI.',
+    aboutCreditsMethod: 'L\'extraction des navaids depuis MSFS 2024 (<code>extract-navaids-msfs.js</code>) s\'inspire directement de la méthode du projet atools / Little Navmap d\'Alexander Barthel.',
   },
 
   en: {
@@ -451,6 +460,15 @@ const TRANSLATIONS = {
     updateDownloading: 'Downloading update… {percent}%',
     updateReady: 'Update {version} ready to install.',
     updateRestart: 'Restart and install',
+
+    // "About" modal (header "?" button)
+    btnAboutTooltip: 'About',
+    aboutTitle: 'About',
+    aboutTagline: 'The community of backcountry pilots on Microsoft Flight Simulator 2024. Discover the latest surveyed landing spots and the project news.',
+    aboutLicense: 'This software is distributed under the GPL-3.0 license or later.',
+    aboutSource: 'The source code of this application is available on <a href="https://github.com/brackets-acrobat/backcountry-desktop" target="_blank" rel="noopener">GitHub</a>.',
+    aboutCopyright: 'Copyright 2026 Cyril MILANI.',
+    aboutCreditsMethod: 'The navaid extraction from MSFS 2024 (<code>extract-navaids-msfs.js</code>) draws directly on the method of Alexander Barthel\'s atools / Little Navmap project.',
   },
 };
 

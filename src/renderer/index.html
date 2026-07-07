@@ -40,6 +40,10 @@
       </button>
     </div>
     <div class="conn">
+      <!-- Bouton « ? » : ouvre la modale « À propos » (comme NavXpressVFR) -->
+      <button id="btn-about" class="btn btn-icon" data-i18n-title="btnAboutTooltip" title="À propos" aria-label="À propos">
+        <i class="ph-light ph-question-mark"></i>
+      </button>
       <button id="btn-connect" class="btn btn-state-off"><i class="ph-light ph-plugs"></i> Connecter MSFS2024</button>
       <button id="btn-api-key" class="btn" data-i18n-title="apiKeyTitle" title="Clé API"><i class="ph-light ph-key"></i> <span data-i18n="btnApiKey">Clé API</span></button>
       <button id="queue-badge" class="queue-badge" type="button" data-i18n-title="queueRetryTitle" hidden></button>
@@ -298,6 +302,29 @@
       <div class="modal-actions">
         <button id="btn-snap-cancel" class="btn"><span data-i18n="snapKeep">Garder la position</span></button>
         <button id="btn-snap-ok" class="btn btn-accent"><i class="ph-light ph-crosshair"></i> <span data-i18n="snapPlace">Placer dessus</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale « À propos » (bouton « ? » du header) -->
+  <div id="about-overlay" class="overlay" hidden>
+    <div class="modal about-modal">
+      <h3 data-i18n="aboutTitle">À propos</h3>
+      <p class="about-product">Backcountry Pathfinders Desktop</p>
+      <p class="about-line" data-i18n="aboutTagline">La communauté des pilotes de brousse sur Microsoft Flight Simulator 2024. Découvrez les derniers lieux de poser relevés et l'actualité du projet.</p>
+      <p class="about-line" data-i18n="aboutLicense">Ce logiciel est distribué sous licence GPL-3.0 ou ultérieure.</p>
+      <p class="about-line" data-i18n-html="aboutSource">Le code source de cette application est disponible sur <a href="https://github.com/brackets-acrobat/backcountry-desktop" target="_blank" rel="noopener">GitHub</a>.</p>
+      <p class="about-line" data-i18n="aboutCopyright">Copyright 2026 Cyril MILANI.</p>
+      <hr class="about-sep">
+      <p class="about-credit-title">Little Navmap / atools — Alexander Barthel (albar965)</p>
+      <p class="about-line" data-i18n-html="aboutCreditsMethod">L'extraction des navaids depuis MSFS 2024 (<code>extract-navaids-msfs.js</code>) s'inspire directement de la méthode du projet atools / Little Navmap d'Alexander Barthel.</p>
+      <ul class="about-links">
+        <li>atools : <a href="https://github.com/albar965/atools" target="_blank" rel="noopener">https://github.com/albar965/atools</a></li>
+        <li>Little Navmap : <a href="https://github.com/albar965/littlenavmap" target="_blank" rel="noopener">https://github.com/albar965/littlenavmap</a></li>
+      </ul>
+      <div class="modal-actions about-footer">
+        <span id="about-version" class="about-version"></span>
+        <button id="btn-about-close" class="btn btn-accent"><span data-i18n="btnClose">Fermer</span></button>
       </div>
     </div>
   </div>

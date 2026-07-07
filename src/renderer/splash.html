@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <!-- Splash local uniquement : image + style inline, aucune ressource distante. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline';">
+  <title>Backcountry Pathfinders</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #161310; }
+    .splash { position: relative; width: 100vw; height: 100vh; }
+    .splash img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* Version en blanc, en bas à gauche de l'image (ombre pour rester lisible). */
+    .splash .version {
+      position: absolute;
+      left: 16px;
+      bottom: 12px;
+      color: #fff;
+      font: 600 15px 'Segoe UI', system-ui, Arial, sans-serif;
+      letter-spacing: .3px;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, .85);
+    }
+  </style>
+</head>
+<body>
+  <div class="splash">
+    <img src="../img/old_photo_left.png" alt="Backcountry Pathfinders">
+    <span id="splash-version" class="version"></span>
+  </div>
+</body>
+</html>

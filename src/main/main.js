@@ -87,12 +87,40 @@ sim.on('status', (s) => {
 sim.on('scan', (frame) => broadcast('sc-scan', frame));   // UI (throttlé ~1 Hz)
 sim.on('frame', (frame) => fsm.feed(frame));               // FSM (chaque image)
 
+// Splash screen : fenêtre sans cadre, à la taille de l'image (640×435),
+// affichée au lancement pendant ~4 s pendant que la fenêtre principale se
+// charge en arrière-plan. La version de l'appli est injectée en blanc, en bas
+// à gauche de l'image (executeJavaScript → pas de script inline, CSP stricte).
+function createSplash() {
+  const splash = new BrowserWindow({
+    width: 640,
+    height: 435,
+    frame: false,
+    resizable: false,
+    center: true,
+    alwaysOnTop: true,
+    backgroundColor: '#161310',
+    title: 'Backcountry Pathfinders',
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  splash.removeMenu();
+  splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'));
+  splash.webContents.on('did-finish-load', () => {
+    const v = JSON.stringify('v' + app.getVersion());
+    splash.webContents.executeJavaScript(
+      `document.getElementById('splash-version').textContent = ${v};`
+    ).catch(() => {});
+  });
+  return splash;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
     backgroundColor: '#161310',
     title: 'Backcountry Pathfinders',
+    show: false,   // affichée seulement à la fin du splash screen (voir whenReady)
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
       contextIsolation: true,
@@ -130,6 +158,7 @@ function configPublique() {
     apiBaseUrl: config.apiBaseUrl,
     cleConfiguree: config._cleConfiguree,
     source: config._source,
+    version: app.getVersion(),
   };
 }
 
@@ -624,7 +653,13 @@ ipcMain.handle('lieux-all', async () => recupererLieux(config));
 ipcMain.handle('update-install', async () => { quitAndInstall(); return { ok: true }; });
 
 app.whenReady().then(() => {
-  createWindow();
+  const splash = createSplash();
+  createWindow();   // fenêtre principale masquée, chargée pendant le splash
+  // Après 4 s : ferme le splash et révèle la fenêtre principale.
+  setTimeout(() => {
+    if (splash && !splash.isDestroyed()) splash.close();
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.maximize(); mainWindow.show(); mainWindow.focus(); }
+  }, 4000);
   flushQueue();
   setInterval(flushQueue, 60000);
   // Auto-update seulement en app packagée : en dev, electron-updater n'a pas de
@@ -639,5 +674,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();                 // recréée masquée (show:false)…
+    mainWindow.once('ready-to-show', () => { mainWindow.maximize(); mainWindow.show(); });   // …agrandie puis affichée
+  }
 });

@@ -651,6 +651,33 @@ main.profil-open .leaflet-bottom { bottom: var(--vp-h, 210px); }
 /* Message d'erreur de la modale « cercle de portée » (vide = invisible) */
 .modal-error { margin: 0 0 14px; min-height: 1em; color: var(--danger); font-size: .85rem; }
 
+/* --- Modale « À propos » --- */
+/* +50px de hauteur via le padding vertical (20 → 45), largeur inchangée.
+   position:relative pour ancrer le pied en absolu ; padding bas élargi pour
+   réserver la place du pied et éviter tout chevauchement avec le contenu. */
+.about-modal { position: relative; width: min(480px, 92vw); padding-top: 45px; padding-bottom: 64px; }
+/* Pied de modale : version à gauche (blanc), bouton Fermer à droite,
+   ancré à 15px du bas de la fenêtre (les deux sur la même rangée). */
+.about-modal .about-footer {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 15px;
+  margin: 0;
+  justify-content: space-between;
+  align-items: center;
+}
+.about-version { color: #fff; font-size: .85rem; letter-spacing: .3px; }
+.about-modal h3 { text-align: center; text-transform: uppercase; letter-spacing: .5px; }
+.about-product { margin: 0 0 12px; text-align: center; font-weight: 700; font-size: 1.05rem; color: var(--accent); }
+.about-modal .about-line { margin: 0 0 10px; color: var(--ink); line-height: 1.55; font-size: .9rem; }
+.about-sep { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
+.about-credit-title { margin: 0 0 8px; font-weight: 700; color: var(--ink); font-size: .9rem; }
+.about-links { margin: 0; padding-left: 18px; color: var(--ink); font-size: .85rem; line-height: 1.6; }
+.about-modal a { color: var(--accent); text-decoration: none; }
+.about-modal a:hover { text-decoration: underline; }
+.about-modal code { font-family: var(--mono); font-size: .85em; }
+
 /* Barre de progression (import aéroports MSFS) */
 .progress-bar {
   height: 10px;
