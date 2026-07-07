@@ -629,7 +629,7 @@ app.whenReady().then(() => {
   setInterval(flushQueue, 60000);
   // Auto-update seulement en app packagée : en dev, electron-updater n'a pas de
   // dev-app-update.yml et lèverait une erreur inutile.
-  if (app.isPackaged) setupAutoUpdater(broadcast);
+  if (app.isPackaged) setupAutoUpdater(broadcast, mainWindow);
 });
 
 app.on('window-all-closed', () => {

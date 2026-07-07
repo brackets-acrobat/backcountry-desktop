@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('bc', {
 
   // Mise à jour automatique (electron-updater)
   installUpdate: () => ipcRenderer.invoke('update-install'),
+  getUpdateState: () => ipcRenderer.invoke('update-get-state'),   // rejeu du dernier état (course au démarrage)
 
   // Abonnements (main → renderer). Chaque appel renvoie une fonction de désabonnement.
   onUpdateStatus:    (cb) => subscribe('update-status', cb),

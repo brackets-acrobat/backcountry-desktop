@@ -1570,6 +1570,13 @@ function renderUpdateBanner() {
 
 $('update-banner-action').addEventListener('click', () => window.bc.installUpdate());
 window.bc.onUpdateStatus((p) => { updateState = p; renderUpdateBanner(); });
+// Rejeu : rattrape un état de MAJ émis avant que l'écouteur ci-dessus soit posé
+// (course au démarrage / rechargement de la fenêtre).
+if (typeof window.bc.getUpdateState === 'function') {
+  Promise.resolve(window.bc.getUpdateState())
+    .then((s) => { if (s) { updateState = s; renderUpdateBanner(); } })
+    .catch(() => {});
+}
 
 window.bc.onStatus((s) => {
   if (s.state) setStatus(s.state, s.app || s.error || s.warn);

@@ -6,32 +6,51 @@
 // ============================================================
 // updater.js — mise à jour automatique via electron-updater (releases GitHub).
 //
-// Repris du mécanisme de NavXpressVFR : au démarrage (léger différé) puis toutes
-// les 6 h, on interroge les releases GitHub (latest.yml). electron-updater
-// télécharge en tâche de fond ; l'installeur NSIS s'applique au prochain quit
-// (ou immédiatement via quitAndInstall depuis la bannière du renderer).
+// Repris du mécanisme de NavXpressVFR : on interroge les releases GitHub
+// (latest.yml) une fois le renderer CHARGÉ (did-finish-load) — donc après qu'il
+// a posé ses écouteurs de MAJ, pour ne pas émettre les événements « dans le
+// vide » (course au démarrage) — puis toutes les 6 h. electron-updater télécharge
+// en tâche de fond ; l'installeur NSIS s'applique au prochain quit (ou via
+// quitAndInstall depuis la bannière du renderer).
 //
 // L'état est diffusé au renderer via le canal 'update-status' :
 //   { state: 'checking' | 'available' | 'none' | 'downloading' | 'ready' | 'error', … }
+// et mémorisé (_lastState) pour être REJOUÉ à la demande via 'update-get-state'
+// (filet complémentaire si le renderer se (re)charge après un événement).
 // ============================================================
 
 const { autoUpdater } = require('electron-updater');
+const { ipcMain } = require('electron');
 
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
-function setupAutoUpdater(broadcast) {
+let _lastState = null;   // dernier état diffusé (rejoué au renderer)
+
+// Le renderer, une fois prêt, réclame le dernier état connu (rattrape un
+// événement émis avant que ses écouteurs soient posés). Enregistré au chargement
+// du module → toujours disponible, renvoie null tant qu'aucun état n'a été émis.
+ipcMain.handle('update-get-state', () => _lastState);
+
+function setupAutoUpdater(broadcast, win) {
   autoUpdater.autoDownload = true;             // télécharge dès qu'une version est dispo
   autoUpdater.autoInstallOnAppQuit = true;     // pose la MAJ à la fermeture si non redémarré
 
-  autoUpdater.on('checking-for-update', () => broadcast('update-status', { state: 'checking' }));
-  autoUpdater.on('update-available',    (info) => broadcast('update-status', { state: 'available', version: info && info.version }));
-  autoUpdater.on('update-not-available', () => broadcast('update-status', { state: 'none' }));
-  autoUpdater.on('download-progress',   (p) => broadcast('update-status', { state: 'downloading', percent: Math.round((p && p.percent) || 0) }));
-  autoUpdater.on('update-downloaded',   (info) => broadcast('update-status', { state: 'ready', version: info && info.version }));
-  autoUpdater.on('error',               (err) => broadcast('update-status', { state: 'error', message: (err && err.message) || String(err) }));
+  const emit = (payload) => { _lastState = payload; broadcast('update-status', payload); };
+
+  autoUpdater.on('checking-for-update', () => emit({ state: 'checking' }));
+  autoUpdater.on('update-available',    (info) => emit({ state: 'available', version: info && info.version }));
+  autoUpdater.on('update-not-available', () => emit({ state: 'none' }));
+  autoUpdater.on('download-progress',   (p) => emit({ state: 'downloading', percent: Math.round((p && p.percent) || 0) }));
+  autoUpdater.on('update-downloaded',   (info) => emit({ state: 'ready', version: info && info.version }));
+  autoUpdater.on('error',               (err) => emit({ state: 'error', message: (err && err.message) || String(err) }));
 
   const check = () => autoUpdater.checkForUpdates().catch(() => { /* silencieux (hors-ligne, etc.) */ });
-  setTimeout(check, 4000);        // laisse la fenêtre s'afficher avant de sonder le réseau
+
+  // Vérification une fois le renderer chargé (écouteurs de MAJ posés), sinon
+  // immédiatement. Puis toutes les 6 h.
+  const wc = win && win.webContents;
+  if (wc && wc.isLoading()) wc.once('did-finish-load', check);
+  else check();
   setInterval(check, SIX_HOURS);
 }
 
