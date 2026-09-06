@@ -152,7 +152,107 @@ function aeroportParCode(code) {
   const a = all.find((x) => String(x.code || '').toUpperCase() === c)
          || all.find((x) => String(x.ident || '').toUpperCase() === c);
   if (!a) return { ok: false, reason: 'not-found' };
-  return { ok: true, airport: { code: a.code, ident: a.ident, name: a.name, lat: a.lat, lon: a.lon, type: a.type } };
+  return { ok: true, airport: { code: a.code, ident: a.ident, name: a.name, lat: a.lat, lon: a.lon, type: a.type, elevation_ft: a.elevation_ft } };
+}
+
+// ------------------------------------------------------------
+// Recherche par code OACI ou par nom (bouton « Rechercher »)
+// ------------------------------------------------------------
+//
+// Périmètre : le monde entier. L'index couvre l'intégralité des bases MSFS
+// extraites, aérodromes comme navaids, sans restriction de pays ni d'emprise.
+//
+// Repli des diacritiques et de la casse : « Aérodrome » se trouve en tapant
+// « aerodrome ». Personne ne saisit les accents dans un champ de recherche.
+function plier(s) {
+  // La classe \p{M} couvre les marques combinantes que NFD vient de détacher.
+  return String(s == null ? '' : s).normalize('NFD').replace(/\p{M}/gu, '').toUpperCase();
+}
+
+const RECHERCHE_MAX = 8;       // correspondances retenues au plus
+const RECHERCHE_MIN_CAR = 2;   // en deçà, tout correspond : on ne cherche pas
+
+// Index de recherche : codes et noms repliés UNE FOIS. Replier à chaque frappe
+// coûterait deux normalize() par enregistrement — six chiffres d'appels pour un
+// caractère tapé. Construit paresseusement, invalidé par reload() comme les
+// caches de base.
+let _index = null;
+
+function chargerIndex() {
+  if (_index) return _index;
+  const idx = [];
+  for (const a of chargerAeroports()) {
+    idx.push({
+      codes: [plier(a.code), plier(a.ident)],
+      nom: plier(a.name),
+      lieu: {
+        genre: 'airport', code: a.code || a.ident, ident: a.ident, name: a.name,
+        lat: a.lat, lon: a.lon, type: a.type, elevation_ft: a.elevation_ft, runway: a.runway,
+      },
+    });
+  }
+  for (const n of chargerNavaids()) {
+    idx.push({
+      codes: [plier(n.ident)],
+      nom: plier(n.name),
+      lieu: {
+        genre: 'navaid', code: n.ident, ident: n.ident, name: n.name,
+        lat: n.lat, lon: n.lon, type: n.type, freqKhz: n.freqKhz, rangeNm: n.rangeNm,
+      },
+    });
+  }
+  _index = idx;
+  return _index;
+}
+
+// Rang d'une correspondance, du plus au moins pertinent. Le code exact passe
+// devant tout : qui tape « LFMD » veut Cannes, pas les terrains dont le nom
+// contient ces quatre lettres par accident.
+//   0 code exact · 1 code commençant par · 2 nom commençant par · 3 nom contenant
+function rangCorrespondance(q, codes, nom) {
+  for (const c of codes) if (c === q) return 0;
+  for (const c of codes) if (c.startsWith(q)) return 1;
+  if (nom.startsWith(q)) return 2;
+  if (nom.includes(q)) return 3;
+  return -1;
+}
+
+// Ordre d'affichage : le rang d'abord, puis l'alphabet — l'ordre du fichier
+// d'import n'a aucun sens pour qui lit la liste.
+function meilleurQue(a, b) {
+  if (a.rang !== b.rang) return a.rang < b.rang;
+  return a.lieu.name.localeCompare(b.lieu.name, 'fr') < 0;
+}
+
+// L'index couvrant le monde, une saisie courte (« LA », « SA ») correspond à des
+// dizaines de milliers d'entrées. On ne les collecte donc pas : on tient un
+// palmarès borné à `max`, maintenu trié par insertion. Une correspondance moins
+// bonne que la dernière retenue est écartée sans autre calcul — et ce test se
+// tranche sur le rang seul dans l'immense majorité des cas, donc sans payer le
+// localeCompare. Le balayage, lui, reste complet : c'est ce qui donne `total`,
+// et il ne coûte qu'un startsWith/includes par entrée.
+function rechercherLieux(requete, limite) {
+  const q = plier(requete).trim();
+  if (q.length < RECHERCHE_MIN_CAR) return { ok: false, reason: 'too-short' };
+  const idx = chargerIndex();
+  if (!idx.length) return { ok: false, reason: 'no-data' };
+  const max = Number.isFinite(limite) && limite > 0 ? limite : RECHERCHE_MAX;
+
+  const trouves = [];
+  let total = 0;
+  for (const e of idx) {
+    const rang = rangCorrespondance(q, e.codes, e.nom);
+    if (rang < 0) continue;
+    total++;
+    const cand = { rang, lieu: e.lieu };
+    if (trouves.length >= max && !meilleurQue(cand, trouves[trouves.length - 1])) continue;
+    let i = trouves.length;
+    while (i > 0 && meilleurQue(cand, trouves[i - 1])) i--;
+    trouves.splice(i, 0, cand);
+    if (trouves.length > max) trouves.pop();
+  }
+
+  return { ok: true, total, tronque: total > trouves.length, lieux: trouves.map((x) => x.lieu) };
 }
 
 // Distance grand cercle (NM) entre deux points.
@@ -184,6 +284,6 @@ function featureProche(lat, lon, rayonNm) {
 }
 
 // Invalide les caches (après un import) → rechargés à la prochaine requête.
-function reload() { _airports = null; _navaids = null; }
+function reload() { _airports = null; _navaids = null; _index = null; }
 
-module.exports = { aeroportsDansBbox, navaidsDansBbox, aeroportParCode, featureProche, reload };
+module.exports = { aeroportsDansBbox, navaidsDansBbox, aeroportParCode, rechercherLieux, featureProche, reload };

@@ -34,10 +34,50 @@
       <button id="btn-legs" class="btn btn-icon" data-i18n-title="legsToggle" title="Afficher plan de vol" aria-pressed="false">
         <i class="ph-light ph-table"></i>
       </button>
+      <!-- Inverser le plan de vol : départ et arrivée échangés, points tournants retournés -->
+      <button id="btn-inverser" class="btn btn-icon" data-i18n-title="reversePlan" title="Inverser le plan de vol">
+        <i class="ph-light ph-swap"></i>
+      </button>
       <!-- Afficher / masquer le profil vertical (relief le long du plan) -->
       <button id="btn-profil" class="btn btn-icon" data-i18n-title="vertProfileToggle" title="Afficher le profil vertical" aria-pressed="false">
         <i class="ph-light ph-chart-line"></i>
       </button>
+      <!-- Afficher / masquer la rose des vents magnétique centrée sur l'appareil -->
+      <button id="btn-compas" class="btn btn-icon" data-i18n-title="compassToggle" title="Afficher la rose des vents autour de l'appareil" aria-pressed="false">
+        <i class="ph-light ph-compass-rose"></i>
+      </button>
+      <!-- Recherche d'un aérodrome ou d'un navaid par code OACI ou par nom -->
+      <button id="btn-recherche" class="btn btn-icon" data-i18n-title="searchTitle" title="Rechercher un aérodrome ou un navaid">
+        <i class="ph-light ph-magnifying-glass"></i>
+      </button>
+    </div>
+
+    <!-- Groupe CENTRE : chronomètre (MM:SS) et temps de vol (HH:MM:SS), plus la
+         vitesse sol en direct. Sorti du flux et centré sur la BARRE elle-même
+         (voir .chrono-bar) : les groupes gauche et droit n'ayant pas la même
+         largeur, un centrage par flex le poserait de travers. -->
+    <div class="chrono-bar">
+      <div class="chrono-row">
+        <div class="chrono-item">
+          <i class="ph-light ph-timer chrono-icone" data-i18n-title="chronoLabel" title="Chronomètre"></i>
+          <span class="chrono-display" id="chrono-display">00:00</span>
+          <button class="chrono-btn chrono-btn-toggle" id="chrono-toggle" type="button"
+                  data-i18n-title="chronoStart" title="Démarrer"><i class="ph-light ph-play"></i></button>
+          <button class="chrono-btn chrono-btn-reset" id="chrono-reset" type="button"
+                  data-i18n-title="chronoReset" title="Remise à zéro"><i class="ph-light ph-arrow-counter-clockwise"></i></button>
+        </div>
+        <div class="chrono-item">
+          <i class="ph-light ph-hourglass chrono-icone" data-i18n-title="timerLabel" title="Temps de vol"></i>
+          <span class="chrono-display" id="timer-display">00:00:00</span>
+          <button class="chrono-btn chrono-btn-toggle" id="timer-toggle" type="button"
+                  data-i18n-title="chronoStart" title="Démarrer"><i class="ph-light ph-play"></i></button>
+          <button class="chrono-btn chrono-btn-reset" id="timer-reset" type="button"
+                  data-i18n-title="chronoReset" title="Remise à zéro"><i class="ph-light ph-arrow-counter-clockwise"></i></button>
+        </div>
+      </div>
+      <!-- Vitesse sol en direct, sous les compteurs. Alimentée par le flux du
+           simulateur (majScan) ; « — » tant qu'aucune trame n'arrive. -->
+      <div id="gs-live" class="gs-live">GS : — kt · — mph</div>
     </div>
     <div class="conn">
       <!-- Bouton « ? » : ouvre la modale « À propos » (comme NavXpressVFR) -->
@@ -69,6 +109,7 @@
     <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLat">Latitude</span> <span id="b-lat" class="subval">—</span></div>
     <div class="subbar-item"><i class="ph-light ph-map-pin"></i> <span data-i18n="lblLon">Longitude</span> <span id="b-lon" class="subval">—</span></div>
     <div class="subbar-item"><i class="ph-light ph-arrow-line-up"></i> <span data-i18n="lblAmsl">Altitude MSL</span> <span id="b-amsl" class="subval">—</span><span class="unit">ft</span></div>
+    <div class="subbar-item"><i class="ph-light ph-mountains"></i> <span data-i18n="lblAgl">Altitude AGL</span> <span id="b-agl" class="subval">—</span><span class="unit">ft</span></div>
     <div class="subbar-actions">
       <button id="btn-new-plan" class="subbar-btn" data-i18n-title="newPlanTooltip" title="Nouveau plan de vol">
         <i class="ph-light ph-file-plus"></i>
@@ -78,6 +119,9 @@
       </button>
       <button id="btn-save-plan" class="subbar-btn" data-i18n-title="savePlanTooltip" title="Sauvegarder le plan de vol">
         <i class="ph-light ph-floppy-disk"></i>
+      </button>
+      <button id="btn-export-gtn750" class="subbar-btn" data-i18n-title="gtnExportTooltip" title="Envoyer le plan de vol vers le GTN750 (PMS50)">
+        <i class="ph-light ph-gps"></i>
       </button>
     </div>
   </div>
@@ -268,6 +312,37 @@
     </div>
   </div>
 
+  <!-- Modale : recherche d'un aérodrome ou d'un navaid -->
+  <div id="recherche-overlay" class="overlay" hidden>
+    <div class="modal recherche-modal">
+      <h3><i class="ph-light ph-magnifying-glass"></i> <span data-i18n="searchTitle">Rechercher un aérodrome ou un navaid</span></h3>
+      <p class="modal-text" data-i18n="searchIntro">Code OACI ou nom, deux caractères au moins. La recherche porte sur les bases d'aéroports et de navaids importées depuis MSFS 2024.</p>
+      <input id="recherche-input" class="field-input" type="text" spellcheck="false" autocomplete="off"
+             data-i18n-placeholder="searchPlaceholder" placeholder="LFMD, Mandelieu, MTL…">
+      <p id="recherche-etat" class="recherche-etat"></p>
+      <div id="recherche-liste" class="recherche-liste" role="listbox"></div>
+      <div class="modal-actions">
+        <button id="btn-recherche-fermer" class="btn"><span data-i18n="btnClose">Fermer</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale : flanquement VOR (choix du point de la route à flanquer) -->
+  <div id="flanq-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-broadcast"></i> <span data-i18n="flanqTitre">Flanquement VOR</span></h3>
+      <p class="modal-text"><span data-i18n="flanqStation">Station</span> : <strong id="flanq-vor">—</strong></p>
+      <label class="field-label" data-i18n="flanqCible">Point de la route à flanquer</label>
+      <div id="flanq-list" class="flanq-list"></div>
+      <p id="flanq-empty" class="modal-text" data-i18n="flanqAucuneCible" hidden>Aucun point de route : renseignez un départ et une arrivée.</p>
+      <p id="flanq-error" class="modal-error"></p>
+      <div class="modal-actions">
+        <button id="btn-flanq-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-flanq-ok" class="btn btn-accent"><i class="ph-light ph-broadcast"></i> <span data-i18n="flanqTracer">Tracer</span></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modale : cercle de portée (saisie du rayon en NM) -->
   <div id="range-overlay" class="overlay" hidden>
     <div class="modal">
@@ -338,5 +413,14 @@
 
   <script src="i18n.js"></script>
   <script src="renderer.js"></script>
+  <!-- Fonctionnalités : chargées APRÈS le socle (renderer.js), dont elles
+       réutilisent la carte, la route, la déclinaison et les modales. -->
+  <script src="js/features/chronos.js"></script>
+  <script src="js/features/recherche-lieux.js"></script>
+  <script src="js/features/inverser-plan.js"></script>
+  <script src="js/features/mesure-carte.js"></script>
+  <script src="js/features/flanquement.js"></script>
+  <script src="js/features/compas.js"></script>
+  <script src="js/features/export-gtn750.js"></script>
 </body>
 </html>

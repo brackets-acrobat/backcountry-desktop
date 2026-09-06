@@ -241,6 +241,61 @@ const TRANSLATIONS = {
     aboutSource: 'Le code source de cette application est disponible sur <a href="https://github.com/brackets-acrobat/backcountry-desktop" target="_blank" rel="noopener">GitHub</a>.',
     aboutCopyright: 'Copyright 2026 Cyril MILANI.',
     aboutCreditsMethod: 'L\'extraction des navaids depuis MSFS 2024 (<code>extract-navaids-msfs.js</code>) s\'inspire directement de la méthode du projet atools / Little Navmap d\'Alexander Barthel.',
+
+    // Altitude sol (bandeau live, à droite de l'altitude MSL)
+    lblAgl: 'Altitude AGL',
+
+    // Chronomètre (MM:SS) et temps de vol (HH:MM:SS)
+    chronoLabel: 'Chronomètre',
+    timerLabel: 'Temps de vol',
+    chronoStart: 'Démarrer',
+    chronoStop: 'Arrêter',
+    chronoReset: 'Remise à zéro',
+
+    // Recherche d'un aérodrome ou d'un navaid
+    searchTitle: 'Rechercher un aérodrome ou un navaid',
+    searchIntro: 'Code OACI ou nom, deux caractères au moins. La recherche porte sur les bases d\'aéroports et de navaids importées depuis MSFS 2024.',
+    searchPlaceholder: 'LFMD, Mandelieu, MTL…',
+    searchTooShort: 'Saisissez au moins deux caractères.',
+    searchNone: 'Aucun résultat.',
+    searchCount: '{n} résultat(s).',
+    searchCountTruncated: '{n} affichés sur {total} résultats.',
+    searchNoData: 'Base vide : importez d\'abord les aéroports et les navaids MSFS 2024.',
+    searchError: 'La recherche a échoué.',
+    searchRunway: 'Piste',
+
+    // Inversion du plan de vol
+    reversePlan: 'Inverser le plan de vol',
+
+    // Rose des vents magnétique (portage de Little Navmap)
+    compassToggle: 'Afficher la rose des vents autour de l\'appareil',
+
+    // Mesure de distance et de route sur la carte
+    ctxMesure: 'Mesurer une distance depuis ce point',
+    ctxMesureEffacer: 'Effacer la mesure',
+
+    // Flanquement VOR
+    ctxFlanquement: 'Flanquement VOR',
+    ctxFlanquementDeleteOne: 'Supprimer ce flanquement',
+    ctxFlanquementClear: 'Effacer les flanquements',
+    flanqTitre: 'Flanquement VOR',
+    flanqStation: 'Station',
+    flanqCible: 'Point de la route à flanquer',
+    flanqAucuneCible: 'Aucun point de route : renseignez un départ et une arrivée.',
+    flanqChoixRequis: 'Choisissez un point à flanquer.',
+    flanqTracer: 'Tracer',
+    flanqDepart: 'Départ',
+    flanqArrivee: 'Arrivée',
+    flanqPointCarte: 'Un point de la carte…',
+    flanqDesignerPoint: 'Cliquez le point à flanquer sur la carte (Échap pour annuler).',
+
+    // Export du plan de vol vers le GTN750 de PMS50
+    gtnExportTooltip: 'Envoyer le plan de vol vers le GTN750 (PMS50)',
+    gtnExportOk: 'Plan de vol déposé dans le GTN750. Utilisez « Import » sur sa page Flight Plan.',
+    gtnExportVide: 'Renseignez un départ et une arrivée avant d\'exporter.',
+    gtnExportSimIntrouvable: 'MSFS 2024 introuvable : impossible de localiser le dossier Community.',
+    gtnExportPaquetIntrouvable: 'Le GTN750 de PMS50 n\'est pas installé dans le dossier Community.',
+    gtnExportErr: 'Échec de l\'export vers le GTN750 : {err}',
   },
 
   en: {
@@ -469,6 +524,61 @@ const TRANSLATIONS = {
     aboutSource: 'The source code of this application is available on <a href="https://github.com/brackets-acrobat/backcountry-desktop" target="_blank" rel="noopener">GitHub</a>.',
     aboutCopyright: 'Copyright 2026 Cyril MILANI.',
     aboutCreditsMethod: 'The navaid extraction from MSFS 2024 (<code>extract-navaids-msfs.js</code>) draws directly on the method of Alexander Barthel\'s atools / Little Navmap project.',
+
+    // Height above ground (live bar, right of the MSL altitude)
+    lblAgl: 'AGL altitude',
+
+    // Stopwatch (MM:SS) and flight time (HH:MM:SS)
+    chronoLabel: 'Stopwatch',
+    timerLabel: 'Flight time',
+    chronoStart: 'Start',
+    chronoStop: 'Stop',
+    chronoReset: 'Reset',
+
+    // Airport / navaid search
+    searchTitle: 'Search for an airport or a navaid',
+    searchIntro: 'ICAO code or name, at least two characters. The search covers the airport and navaid databases imported from MSFS 2024.',
+    searchPlaceholder: 'LFMD, Mandelieu, MTL…',
+    searchTooShort: 'Type at least two characters.',
+    searchNone: 'No result.',
+    searchCount: '{n} result(s).',
+    searchCountTruncated: '{n} shown out of {total} results.',
+    searchNoData: 'Empty database: import the MSFS 2024 airports and navaids first.',
+    searchError: 'The search failed.',
+    searchRunway: 'Runway',
+
+    // Flight plan reversal
+    reversePlan: 'Reverse the flight plan',
+
+    // Magnetic compass rose (ported from Little Navmap)
+    compassToggle: 'Show the compass rose around the aircraft',
+
+    // Distance and course measurement on the map
+    ctxMesure: 'Measure a distance from this point',
+    ctxMesureEffacer: 'Clear the measurement',
+
+    // VOR radial (flanking)
+    ctxFlanquement: 'VOR radial',
+    ctxFlanquementDeleteOne: 'Delete this VOR radial',
+    ctxFlanquementClear: 'Clear the VOR radials',
+    flanqTitre: 'VOR radial',
+    flanqStation: 'Station',
+    flanqCible: 'Route point to plot from',
+    flanqAucuneCible: 'No route point: enter a departure and an arrival.',
+    flanqChoixRequis: 'Choose a point to plot from.',
+    flanqTracer: 'Plot',
+    flanqDepart: 'Departure',
+    flanqArrivee: 'Arrival',
+    flanqPointCarte: 'A point on the map…',
+    flanqDesignerPoint: 'Click the point on the map (Esc to cancel).',
+
+    // Flight plan export to the PMS50 GTN750
+    gtnExportTooltip: 'Send the flight plan to the GTN750 (PMS50)',
+    gtnExportOk: 'Flight plan written to the GTN750. Use "Import" on its Flight Plan page.',
+    gtnExportVide: 'Enter a departure and an arrival before exporting.',
+    gtnExportSimIntrouvable: 'MSFS 2024 not found: unable to locate the Community folder.',
+    gtnExportPaquetIntrouvable: 'The PMS50 GTN750 is not installed in the Community folder.',
+    gtnExportErr: 'Export to the GTN750 failed: {err}',
   },
 };
 

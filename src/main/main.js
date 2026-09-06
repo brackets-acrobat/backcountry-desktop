@@ -30,6 +30,7 @@ const { envoyerVol, recupererLieux } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
 const { enfiler, compter, flush } = require('./queue');
 const { setupAutoUpdater, quitAndInstall } = require('./updater');
+const exportGtn750 = require('./export-gtn750');
 
 // Centralise les données d'Electron (cache, localStorage, session…) dans un
 // sous-dossier du dossier de travail au lieu d'AppData → tout au même endroit
@@ -585,6 +586,8 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
 ipcMain.handle('aeroports-bbox', async (_e, bbox) => airportsData.aeroportsDansBbox(bbox));
 ipcMain.handle('navaids-bbox', async (_e, bbox) => airportsData.navaidsDansBbox(bbox));
 ipcMain.handle('aeroport-par-code', async (_e, code) => airportsData.aeroportParCode(code));
+// Recherche d'un aérodrome ou d'un navaid par code OACI ou par nom (bouton « Rechercher »).
+ipcMain.handle('rechercher-lieux', async (_e, requete) => airportsData.rechercherLieux(requete));
 
 // Feature (aéroport/navaid) le plus proche d'un point, dans un rayon (NM).
 ipcMain.handle('feature-proche', async (_e, { lat, lon, rayonNm } = {}) => airportsData.featureProche(lat, lon, rayonNm));
@@ -637,6 +640,11 @@ ipcMain.handle('ouvrir-plan', async (_e, { titre } = {}) => {
 });
 
 // Déclinaison magnétique (WMM) en un point : decl en degrés, + = Est.
+// Export du plan de vol vers le GTN750 de PMS50 : le renderer construit le XML
+// (format PLN, seul accepté par l'instrument), le main l'écrit sous le nom et à
+// l'emplacement imposés par sa documentation.
+ipcMain.handle('exporter-gtn750', async (_e, payload = {}) => exportGtn750.ecrire(payload));
+
 ipcMain.handle('declinaison', async (_e, { lat, lon } = {}) => {
   try {
     const info = geomagnetism.model().point([lat, lon]);
