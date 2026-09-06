@@ -1908,6 +1908,14 @@ function closeSendModals() {
 }
 
 // --- Boutons de la modale d'envoi ---
+// Envoi du vol. Deux issues très différentes :
+//   • parti, ou mis en file (hors-ligne, panne serveur) → c'est réglé, la
+//     modale annonce le résultat et se ferme d'elle-même ;
+//   • refusé par le serveur → la modale RESTE ouverte, affiche ce que le
+//     serveur a répondu, et rend les deux boutons. Le payload est encore en
+//     mémoire ici : « Envoyer » retente à l'identique, « Ne pas envoyer »
+//     renonce explicitement. Fermer tout seul au bout de 2,8 s escamotait la
+//     seule information utile et ne laissait aucun recours.
 $('btn-send-yes').addEventListener('click', async () => {
   const st = $('send-status');
   $('btn-send-yes').disabled = true; $('btn-send-no').disabled = true;
@@ -1919,11 +1927,23 @@ $('btn-send-yes').addEventListener('click', async () => {
     arrIcao: ($('icao-arr') && $('icao-arr').value) || '',
   });
   st.className = 'modal-status ' + (res.ok ? 'is-ok' : 'is-error');
-  st.textContent = t('sendResult')
+  let texte = t('sendResult')
     .replace('{n}', res.envoyes ?? 0)
     .replace('{q}', res.enfiles ?? 0)
     .replace('{e}', res.echecs ?? 0);
-  setTimeout(closeSendModals, 2800);
+  if (!res.ok && res.erreur) {
+    texte += ' — ' + t('sendServerError')
+      .replace('{status}', res.status || '?')
+      .replace('{msg}', res.erreur);
+  }
+  st.textContent = texte;
+  if (res.ok) {
+    setTimeout(closeSendModals, 2800);
+  } else {
+    st.textContent += ' ' + t('sendRetryHint');
+    $('btn-send-yes').disabled = false;
+    $('btn-send-no').disabled = false;
+  }
 });
 
 // « Ne pas envoyer » → confirmation.

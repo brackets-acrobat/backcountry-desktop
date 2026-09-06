@@ -26,9 +26,9 @@ const { runExtraction: runNavaidsExtraction } = require('./extract-navaids-msfs'
 const airportsData = require('./airports-data');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
-const { envoyerVol, recupererLieux } = require('./api-client');
+const { envoyerVol, recupererLieux, messageServeur } = require('./api-client');
 const { capturerVersFichier } = require('./capture');
-const { enfiler, compter, flush } = require('./queue');
+const { enfiler, compter, flush, estReessayable } = require('./queue');
 const { setupAutoUpdater, quitAndInstall } = require('./updater');
 const exportGtn750 = require('./export-gtn750');
 
@@ -58,10 +58,38 @@ function dossiers() {
   return {
     screenshots: path.join(base, 'screenshots'),
     queue: path.join(base, 'queue'),
+    // Vols que le serveur a refusés définitivement. Ils ne sont PAS rejoués
+    // (le même corps serait re-refusé) mais ils ne disparaissent pas non plus :
+    // le relevé d'un vol est irremplaçable, il ne se recommence pas.
+    refuses: path.join(base, 'refuses'),
   };
 }
 
 const cheminCapture = (uid) => path.join(dossiers().screenshots, `${uid}.jpg`);
+
+// Journal des envois refusés, à côté de screenshots/ et queue/.
+//
+// Le serveur dit toujours POURQUOI il refuse ; cette réponse était jusqu'ici
+// lue puis jetée, et l'UI n'affichait qu'un compteur d'échecs. Une ligne par
+// refus suffit à rendre l'incident diagnosticable après coup.
+function journaliserRefus(vol, res) {
+  try {
+    const ligne = [
+      new Date().toISOString(),
+      `status=${(res && res.status) || 0}`,
+      `vol=${vol._uid || '?'}`,
+      `posers=${(vol.landings || []).length}`,
+      `message=${messageServeur(res).replace(/\s+/g, ' ')}`,
+    ].join(' · ') + '\n';
+    fs.appendFileSync(path.join(dossierBase(), 'envois-refuses.log'), ligne, 'utf-8');
+  } catch (_) { /* le journal ne doit JAMAIS faire échouer un envoi */ }
+}
+
+// Retire la copie de secours d'un vol refusé, quand un nouvel essai a fini par
+// passer. `enfiler` nomme le fichier d'après vol._uid : le chemin est déductible.
+function oublierRefus(vol) {
+  try { fs.unlinkSync(path.join(dossiers().refuses, `${vol._uid}.json`)); } catch (_) { /* absent */ }
+}
 
 function broadcastQueue() {
   broadcast('queue-status', { restants: compter(dossiers().queue) });
@@ -226,16 +254,34 @@ ipcMain.handle('envoyer-tout', async (_e, payload = {}) => {
   const res = await envoyerVol(config, vol);
   if (res.ok) {
     envoyes = vol.landings.length;
-  } else if (!res.status || res.status === 0) {
-    enfiler(dossiers().queue, vol);   // hors-ligne → file (le vol entier)
+    oublierRefus(vol);                // un essai précédent avait pu être refusé
+  } else if (estReessayable(res)) {
+    // Hors-ligne, panne serveur (5xx) ou débit limité (429) : le vol part en
+    // file et sera rejoué tel quel. Auparavant seul le status 0 y allait, et un
+    // 500 passager coûtait le vol.
+    enfiler(dossiers().queue, vol);
     enfiles = vol.landings.length;
   } else {
-    echecs = vol.landings.length;     // refus serveur (4xx/5xx)
+    // Refus définitif : rejouer à l'identique ne servirait à rien. On garde une
+    // copie sur disque et on journalise la raison, puis le renderer laisse
+    // l'utilisateur réessayer ou renoncer explicitement.
+    echecs = vol.landings.length;
+    enfiler(dossiers().refuses, vol);
+    journaliserRefus(vol, res);
   }
 
+  // La FSM est réinitialisée dans TOUS les cas : `flightEnded` y est un verrou à
+  // un coup, et la laisser armée bloquerait toutes les fins de vol suivantes en
+  // mêlant leurs posers à ceux-ci. Un nouvel essai n'en a pas besoin — le
+  // renderer détient encore le payload complet.
   fsm.reset();
   broadcastQueue();
-  return { ok: echecs === 0, envoyes, enfiles, echecs };
+  return {
+    ok: echecs === 0,
+    envoyes, enfiles, echecs,
+    status: (res && res.status) || 0,
+    erreur: res.ok ? null : messageServeur(res),
+  };
 });
 
 // « Ne pas envoyer » confirmé → on oublie les posers du vol (les photos locales restent).

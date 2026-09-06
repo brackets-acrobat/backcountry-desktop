@@ -146,4 +146,20 @@ function recupererLieux(cfg) {
   });
 }
 
-module.exports = { envoyerVol, recupererLieux };
+// Message lisible tiré d'une réponse en échec. L'API répond
+// { ok:false, erreur:"…" } ; mais un 502 de reverse proxy ou le 404 du site
+// renvoient une page HTML, qui arrive telle quelle dans `brut` — d'où le
+// dégraissage des balises et la troncature. Sans cette fonction, la seule chose
+// que l'appelant pouvait montrer était un compteur d'échecs.
+function messageServeur(res) {
+  const corps = (res && res.body) || {};
+  if (typeof corps.erreur === 'string' && corps.erreur.trim()) return corps.erreur.trim();
+  if (typeof corps.message === 'string' && corps.message.trim()) return corps.message.trim();
+  if (typeof corps.brut === 'string' && corps.brut.trim()) {
+    const texte = corps.brut.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (texte) return texte.length > 200 ? texte.slice(0, 200) + '…' : texte;
+  }
+  return (res && res.status) ? `HTTP ${res.status}` : 'aucune réponse du serveur';
+}
+
+module.exports = { envoyerVol, recupererLieux, messageServeur };
