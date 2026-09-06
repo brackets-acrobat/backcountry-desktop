@@ -15,6 +15,10 @@ let connecte = false;
 let lastStatusState = 'disconnected';   // dernier état connu (pour re-rendu à la bascule de langue)
 let lastStatusDetail = '';
 let lastConfig = null;                   // dernière config API (pour re-rendu de l'indice)
+// Dernière trame du simulateur, ou null hors connexion. Les fonctionnalités qui
+// se redessinent en dehors du flux (rose des vents au zoom / au déplacement) y
+// relisent la position et les caps sans attendre la trame suivante.
+let derniereTrame = null;
 
 // (Re)dessine le bouton de connexion : sa COULEUR porte l'état (rouge/orange/
 // vert), son libellé et son infobulle de détail sont dans la langue courante.
@@ -57,6 +61,29 @@ function renderApiHint() {
 
 function fmt(n, dec = 0) {
   return (typeof n === 'number' && isFinite(n)) ? n.toFixed(dec) : '—';
+}
+
+// --- Message bref au-dessus de la carte ---
+// Pour ce qui n'a pas besoin d'une modale : un export réussi, une consigne le
+// temps d'un geste. `persistant` le laisse en place jusqu'à fermeture explicite
+// (désignation d'un point à la souris) ; sinon il s'efface au bout de 5 s.
+let _toastEl = null;
+let _toastTimer = null;
+
+function messageCarte(texte, persistant) {
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  if (!_toastEl) {
+    _toastEl = document.createElement('div');
+    _toastEl.className = 'map-toast';
+    document.body.appendChild(_toastEl);
+  }
+  _toastEl.textContent = texte;
+  if (!persistant) _toastTimer = setTimeout(fermerMessageCarte, 5000);
+}
+
+function fermerMessageCarte() {
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  if (_toastEl) { _toastEl.remove(); _toastEl = null; }
 }
 
 // --- Carte (fond OpenTopoMap) ---
@@ -534,6 +561,10 @@ function ouvrirMenuAeroport(airport, e) {
     { label: t('ctxSetDep'), action: () => definirIcao('dep', code) },
     { label: t('ctxSetArr'), action: () => definirIcao('arr', code) },
   ];
+  // Mesurer depuis un aérodrome est le cas le plus courant : on l'offre ici
+  // aussi, pas seulement sur le fond de carte.
+  items.push({ label: t('ctxMesure'), action: () => demarrerMesure(L.latLng(airport.lat, airport.lon)) });
+  if (aUneMesure()) items.push({ label: t('ctxMesureEffacer'), action: effacerMesure });
   // Correspondance avec un point tournant aimanté : code brut (même base que le
   // mousedown de l'aéroport et que le code stocké via featureProche).
   const rawCode = (airport.code || airport.ident || '').toUpperCase();
@@ -553,7 +584,9 @@ function itemsFondCarte(latlng) {
     { label: t('ctxSetDepPoint'), action: () => { _lieuDepartLatLng = latlng; definirIcao('dep', 'ZZZY'); } },
     { label: t('ctxSetArrPoint'), action: () => { _lieuArriveeLatLng = latlng; definirIcao('arr', 'ZZZZ'); } },
     { label: t('ctxRangeCircle'), action: () => ouvrirModaleCercle(latlng) },
+    { label: t('ctxMesure'), action: () => demarrerMesure(latlng) },
   ];
+  if (aUneMesure()) items.push({ label: t('ctxMesureEffacer'), action: effacerMesure });
   if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
   return items;
 }
@@ -574,7 +607,19 @@ function ouvrirMenuCercle(e, supprimerCeCercle) {
   ouvrirMenuContextuel(p.x, p.y, items);
 }
 
-// Menu sur un navaid : arrivée ZZZZ + cercle de portée du navaid (rayon publié).
+// Menu sur le trait d'un flanquement : options du fond de carte + suppression
+// de CE flanquement. Même façon que pour un cercle de portée.
+function ouvrirMenuFlanquement(e, supprimerCeFlanquement) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  L.DomEvent.stopPropagation(e);
+  const p = ctxPageXY(e);
+  const items = itemsFondCarte(e.latlng);
+  items.push({ label: t('ctxFlanquementDeleteOne'), action: supprimerCeFlanquement });
+  ouvrirMenuContextuel(p.x, p.y, items);
+}
+
+// Menu sur un navaid : arrivée ZZZZ + cercle de portée du navaid (rayon publié)
+// + flanquement VOR (stations qui émettent des radiaux).
 function ouvrirMenuNavaid(e, navaid) {
   if (e.originalEvent) e.originalEvent.preventDefault();
   const p = ctxPageXY(e);
@@ -585,6 +630,12 @@ function ouvrirMenuNavaid(e, navaid) {
   if (navaid && Number.isFinite(navaid.rangeNm) && navaid.rangeNm > 0) {
     items.push({ label: t('ctxRangeCircleNavaid'), action: () => tracerCercleNavaid(navaid) });
   }
+  // Flanquement : seules les stations qui émettent des radiaux. Pas de condition
+  // sur la route — un point quelconque de la carte est toujours flanquable.
+  if (estStationVor(navaid)) {
+    items.push({ label: t('ctxFlanquement'), action: () => ouvrirModaleFlanquement(navaid) });
+  }
+  if (aDesFlanquements()) items.push({ label: t('ctxFlanquementClear'), action: effacerTousFlanquements });
   if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
   ouvrirMenuContextuel(p.x, p.y, items);
 }
@@ -719,10 +770,17 @@ let _routeDep = null, _routeArr = null;
 // points comme le nom. null = non renseignée.
 let _legAltDep = null;
 const DEFAULT_LEG_ALT = 2500;   // altitude par défaut d'un leg (ft) tant que non renseignée
-function getLegAlt(i) {
-  if (i === 0) return Number.isFinite(_legAltDep) ? _legAltDep : DEFAULT_LEG_ALT;
+// Altitude RÉELLEMENT saisie pour ce leg, ou null. L'inversion du plan s'appuie
+// dessus : reporter la valeur par défaut ferait passer pour un choix du pilote
+// ce qui n'est qu'un repli d'affichage.
+function getLegAltBrut(i) {
+  if (i === 0) return Number.isFinite(_legAltDep) ? _legAltDep : null;
   const wp = routeWaypoints[i - 1];
-  return wp && Number.isFinite(wp.alt) ? wp.alt : DEFAULT_LEG_ALT;
+  return wp && Number.isFinite(wp.alt) ? wp.alt : null;
+}
+function getLegAlt(i) {
+  const saisie = getLegAltBrut(i);
+  return saisie != null ? saisie : DEFAULT_LEG_ALT;
 }
 function setLegAlt(i, v) {
   const val = Number.isFinite(v) ? v : null;
@@ -1028,6 +1086,9 @@ function construirePlan() {
       lat: p.lat, lon: p.lon, code: p.code || null, nom: noms[i],
       alt: Number.isFinite(p.alt) ? p.alt : null,
     })),
+    // Flanquements VOR : identité de la station et positions seulement — radial
+    // et distance se recalculent à l'ouverture, la déclinaison ayant pu changer.
+    flanquements: flanquementsEnregistrables(),
     cree: new Date().toISOString(),
   };
 }
@@ -1037,7 +1098,9 @@ function planEnregistrable() {
   return !!nettoyerIcao($('icao-dep').value) && !!nettoyerIcao($('icao-arr').value);
 }
 function majBoutonsPlan() {
-  $('btn-save-plan').disabled = !planEnregistrable();
+  const pret = planEnregistrable();
+  $('btn-save-plan').disabled = !pret;
+  $('btn-export-gtn750').disabled = !pret;
 }
 
 $('btn-save-plan').addEventListener('click', async () => {
@@ -1080,6 +1143,7 @@ function appliquerPlan(plan) {
     : [];
   _legAltDep = Number.isFinite(plan.departAlt) ? plan.departAlt : null;
   _legActif = 0;   // nouveau plan chargé → leg actif = premier
+  chargerFlanquements(plan.flanquements);
   majBoutonsPlan();
   majLigneRoute({ fit: true });   // re-résout les ICAO, redessine, recalcule la déclinaison, recadre sur le tracé
 }
@@ -1095,6 +1159,8 @@ function reinitialiserPlan() {
   _legAltDep = null;
   _legActif = 0;
   effacerCercles();   // comme NavXpressVFR : « Nouveau plan » efface aussi les cercles
+  effacerTousFlanquements();   // les flanquements visaient les points de CE plan
+  effacerMesure();
   majBoutonsPlan();
   majLigneRoute();   // dép./arr. vides → la route est effacée
 }
@@ -1578,8 +1644,18 @@ function majVent(f) {
   ind.hidden = false;
 }
 
+// Vitesse sol : le nœud est l'unité de navigation, le mile par heure celle des
+// manuels de vol américains — les deux se lisent d'un coup d'œil, sans conversion
+// mentale au moment où l'on en a le moins le temps.
+const MPH_PAR_KT = 1.150779;
+
 function viderScan() {
-  ['b-lat','b-lon','b-amsl'].forEach((id) => { $(id).textContent = '—'; });
+  derniereTrame = null;
+  ['b-lat','b-lon','b-amsl','b-agl'].forEach((id) => { $(id).textContent = '—'; });
+  $('gs-live').textContent = 'GS : — kt · — mph';   // plus de simulateur : la vitesse sol n'a plus de source
+  // Appelée une fois à l'amorçage, AVANT le chargement des fonctionnalités :
+  // la rose des vents n'existe pas encore à ce moment-là.
+  if (typeof majCompas === 'function') majCompas();
   if (map && planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
   if (map && planeTrack) { map.removeLayer(planeTrack); planeTrack = null; }
   $('wind-indicator').hidden = true;
@@ -1591,12 +1667,19 @@ function viderScan() {
 }
 
 function majScan(f) {
+  derniereTrame = f;
   $('b-lat').textContent = fmt(f.lat, 5);
   $('b-lon').textContent = fmt(f.lon, 5);
   $('b-amsl').textContent = fmt(f.amslFt);
+  $('b-agl').textContent = fmt(f.aglFt);
+  const gs = Number.isFinite(f.groundSpeedKt) ? f.groundSpeedKt : null;
+  $('gs-live').textContent = gs === null
+    ? 'GS : — kt · — mph'
+    : `GS : ${Math.round(gs)} kt · ${Math.round(gs * MPH_PAR_KT)} mph`;
   majCarte(f);
   majVent(f);
   majLegActifDepuisAvion(f);   // séquencement du leg actif selon la position avion
+  majCompas();                 // rose des vents : suit l'avion, les caps et le vent
 }
 
 // --- Câblage ---

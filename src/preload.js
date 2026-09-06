@@ -49,10 +49,12 @@ contextBridge.exposeInMainWorld('bc', {
   aeroportsDansBbox: (bbox) => ipcRenderer.invoke('aeroports-bbox', bbox),
   navaidsDansBbox: (bbox) => ipcRenderer.invoke('navaids-bbox', bbox),
   aeroportParCode: (code) => ipcRenderer.invoke('aeroport-par-code', code),
+  rechercherLieux: (requete) => ipcRenderer.invoke('rechercher-lieux', requete),
   declinaison: (lat, lon) => ipcRenderer.invoke('declinaison', { lat, lon }),
   featureProche: (lat, lon, rayonNm) => ipcRenderer.invoke('feature-proche', { lat, lon, rayonNm }),
   sauverPlan: (payload) => ipcRenderer.invoke('sauver-plan', payload),
   ouvrirPlan: (payload) => ipcRenderer.invoke('ouvrir-plan', payload),
+  exporterGtn750: (payload) => ipcRenderer.invoke('exporter-gtn750', payload),
 
   // Lieux de poser des utilisateurs (base du site)
   lieux: () => ipcRenderer.invoke('lieux-all'),

@@ -21,6 +21,8 @@
 //   SURFACE TYPE / COND    → sol, fiables au contact
 //   PLANE ALT ABOVE GROUND → hauteur-sol (détection vol / poser)
 //   SIM ON GROUND / GROUND VELOCITY / BRAKE PARKING → FSM du poser
+//   AIRSPEED TRUE          → Vp, seule source de vitesse propre (angle de crabe)
+//   GPS GROUND TRUE TRACK  → route sol vraie (rose des vents : trait TRK)
 //   LOCAL TIME/YEAR/MONTH/DAY → date+heure LOCALE du simulateur (horodatage)
 // ============================================================
 
@@ -111,6 +113,8 @@ class SimConnectClient extends EventEmitter {
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'SURFACE TYPE',              'Enum',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'SURFACE CONDITION',         'Enum',    SCDataType.INT32);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GROUND VELOCITY',           'knots',   SCDataType.FLOAT64);
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'AIRSPEED TRUE',             'knots',   SCDataType.FLOAT64); // Vp (rose des vents : angle de crabe)
+    handle.addToDataDefinition(SC_SCAN_DEF_ID, 'GPS GROUND TRUE TRACK',     'degrees', SCDataType.FLOAT64); // route sol vraie (rose des vents)
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'PLANE HEADING DEGREES TRUE', 'degrees', SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'PLANE HEADING DEGREES MAGNETIC', 'degrees', SCDataType.FLOAT64);
     handle.addToDataDefinition(SC_SCAN_DEF_ID, 'AMBIENT WIND DIRECTION',    'degrees', SCDataType.FLOAT64); // d'où vient le vent (vrai)
@@ -144,6 +148,8 @@ class SimConnectClient extends EventEmitter {
         const surfaceType  = data.data.readInt32();
         const surfaceCond  = data.data.readInt32();
         const groundSpeedKt = data.data.readFloat64();
+        const tasKt        = data.data.readFloat64();
+        const trackTrue    = data.data.readFloat64();
         const headingTrue  = data.data.readFloat64();
         const headingMag   = data.data.readFloat64();
         const windDir      = data.data.readFloat64();   // d'où vient le vent (cap vrai)
@@ -162,7 +168,7 @@ class SimConnectClient extends EventEmitter {
           lat, lon, amslFt, aglFt, groundAltFt,
           surfaceType, surfaceTypeLabel: libelleSurface(surfaceType),
           surfaceCond, surfaceCondLabel: libelleCondition(surfaceCond),
-          groundSpeedKt, headingTrue, headingMag, windDir, windKt, onGround, parkingBrake,
+          groundSpeedKt, tasKt, trackTrue, headingTrue, headingMag, windDir, windKt, onGround, parkingBrake,
           engineOn: eng1 || eng2,
           aircraftTitle,
           simLocal: buildSimLocal(localYear, localMonth, localDay, localTime),

@@ -47,8 +47,27 @@ npm start                              # nécessite MSFS 2024 lancé pour SimCon
 | `src/main/fsm.js` | Machine à états du poser | 🚧 stub + contrat |
 | `src/main/scan.js` | Buffer profil relief (passage bas) | 🚧 stub + contrat |
 | `src/main/capture.js` | Capture d'écran staging | 🚧 stub + contrat |
+| `src/main/airports-data.js` | Bases MSFS extraites : bbox, code, recherche par nom | ✅ |
+| `src/main/export-gtn750.js` | Dépose le plan de vol (`fpl.pln`) dans le GTN750 de PMS50 | ✅ |
 | `src/preload.js` | Pont sécurisé (contextIsolation) | ✅ |
-| `src/renderer/` | UI (thème sombre, accent orange/terre) | ✅ jalon 1 |
+| `src/renderer/renderer.js` | Socle de l'UI : carte, route, legs, profil, imports | ✅ |
+| `src/renderer/js/features/` | Fonctionnalités de navigation (voir ci-dessous) | ✅ |
+
+### Fonctionnalités de navigation (`src/renderer/js/features/`)
+
+Scripts classiques chargés **après** `renderer.js`, dont ils réutilisent la carte, la
+route, la déclinaison et les modales. Aucun module : même mécanisme de portée globale
+partagée que le socle.
+
+| Fichier | Rôle |
+|---|---|
+| `chronos.js` | Chronomètre (MM:SS) et temps de vol (HH:MM:SS) |
+| `recherche-lieux.js` | Recherche d'un aérodrome / navaid par code OACI ou par nom |
+| `inverser-plan.js` | Inversion du plan de vol (départ ↔ arrivée) |
+| `mesure-carte.js` | Mesure de distance et de route sur la carte |
+| `flanquement.js` | Flanquement VOR (radial magnétique vers un point de la route) |
+| `compas.js` | Rose des vents magnétique (portage de Little Navmap) |
+| `export-gtn750.js` | Construction du PLN pour le GTN750 de PMS50 |
 
 ## Briques SimConnect (validées)
 
@@ -57,6 +76,8 @@ npm start                              # nécessite MSFS 2024 lancé pour SimCon
 - **`SURFACE CONDITION`** — Normal / Wet / Icy / Snow. Au sol également.
 - **`PLANE ALT ABOVE GROUND`** — hauteur-sol, garde-fou du passage bas (< 500 ft).
 - **`SIM ON GROUND` / `BRAKE PARKING POSITION` / `GROUND VELOCITY`** — détection et validation du poser (FSM).
+- **`AIRSPEED TRUE`** — vitesse propre, seule source de Vp pour l'angle de crabe de la rose des vents.
+- **`GPS GROUND TRUE TRACK`** — route sol vraie, tracée par la rose des vents (trait TRK).
 - **Friction** — pas de SimVar directe : à dériver empiriquement de la décélération au freinage.
 
 **Conséquence de conception majeure** : un *lieu* = fusion de **deux phases** du même

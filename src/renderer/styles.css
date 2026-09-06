@@ -844,3 +844,217 @@ main.profil-open .leaflet-bottom { bottom: var(--vp-h, 210px); }
 .update-banner i[class^="ph-"] { font-size: 20px; color: var(--accent); flex: none; }
 .update-banner-text { white-space: nowrap; }
 .update-banner .btn-accent { flex: none; }
+
+/* ============================================================
+   Chronomètre (MM:SS) et temps de vol (HH:MM:SS) + vitesse sol.
+   Bloc central de la barre supérieure, entre .brand et .conn.
+
+   Clear Sky VFR sort ce bloc du flux et le centre sur la barre elle-même : ses
+   deux groupes latéraux n'ont pas la même largeur, et un centrage par flex l'y
+   poserait de travers. On ne le fait PAS ici : la fenêtre par défaut fait
+   1100 px, où un bloc absolu passerait par-dessus les boutons. Laissé dans le
+   flux, il se range entre les deux groupes et suit le flex-wrap déjà en place
+   sur .topbar — sur une fenêtre étroite il descend d'une ligne au lieu de
+   recouvrir quoi que ce soit.
+   ============================================================ */
+/* Marges automatiques : le bloc se centre dans la place qui lui reste, y
+   compris quand .conn est passée à la ligne suivante — sans elles,
+   space-between le collerait au bord droit de la barre. */
+.chrono-bar { display: flex; flex-direction: column; align-items: center; gap: 5px; margin: 0 auto; }
+.chrono-row { display: flex; align-items: center; gap: 16px; }
+.chrono-item { display: flex; align-items: center; gap: 7px; }
+
+/* L'icône tient le rôle du libellé « CHRONOMÈTRE » / « TEMPS DE VOL » : la barre
+   est déjà chargée. Son infobulle donne le mot, dans la langue courante. */
+.chrono-icone { font-size: 20px; cursor: default; }
+
+/* Le compteur, en chasse fixe comme toutes les données chiffrées de l'appli.
+   Largeur minimale fixée par le format, pour que les chiffres ne dansent pas
+   d'une seconde à l'autre. */
+.chrono-display {
+  min-width: 74px;
+  padding: 3px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#timer-display { min-width: 104px; }
+/* En marche, le compteur passe au vert d'accent : l'état se lit sur le nombre
+   lui-même, sans avoir à interpréter l'icône du bouton. */
+.chrono-display.est-en-marche { color: var(--accent); border-color: var(--accent); }
+
+/* Boutons du compteur : même géométrie et mêmes états que .subbar-btn, dont ils
+   sont les voisins directs dans la hiérarchie visuelle. */
+.chrono-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.chrono-btn i[class^="ph-"] { font-size: 15px; }
+.chrono-btn:hover,
+.chrono-btn:focus-visible { border-color: var(--accent); background: var(--panel); outline: none; }
+.chrono-btn:active { transform: scale(.94); }
+.chrono-btn:disabled { opacity: .4; cursor: default; }
+.chrono-btn:disabled:hover { border-color: var(--line); background: transparent; }
+
+/* Vitesse sol en direct, sous les compteurs. Chasse fixe et largeur minimale :
+   le nombre ne fait pas danser le bloc en passant de deux à trois chiffres. */
+.gs-live {
+  min-width: 200px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Rose des vents : dessin d'écran, transparent aux clics ---
+   Le divIcon fait 840 px de côté et couvre une large part de la carte : sans
+   pointer-events:none il intercepterait glissements, clics de terrain et menu
+   contextuel. */
+.compas-rose, .compas-rose * { pointer-events: none; }
+
+/* --- Bouton toggle de la rose des vents : accentué quand elle est affichée --- */
+#btn-compas.is-active { color: #0c1a0c; background: var(--accent); border-color: var(--accent-hover); }
+#btn-compas.is-active i[class^="ph-"] { color: #0c1a0c; }
+
+/* --- Étiquettes posées sur la carte (mesure, flanquement) ---
+   Même idiome que les noms de points tournants (.wp-label) : texte coloré cerné
+   d'un halo blanc de 1 px, lisible aussi bien sur le topo que sur le satellite.
+   Le divIcon Leaflet perd son fond et sa bordure ; la rotation le long du trait
+   est posée en ligne par le code (mesure-carte.js / flanquement.js). */
+.mesure-etiquette,
+.flanq-etiquette { background: none; border: 0; }
+.mesure-etiquette-texte,
+.flanq-etiquette-texte {
+  display: inline-block;
+  font: 700 13px/1 var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 1px #fff;
+}
+.mesure-etiquette-texte { color: #0d47a1; }
+.flanq-etiquette-texte { color: #c026a3; }
+
+/* Liste des cibles dans la modale de flanquement. */
+.flanq-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.flanq-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: .35rem .6rem;
+  cursor: pointer;
+}
+.flanq-item:hover { background: var(--panel); }
+.flanq-item input { accent-color: var(--accent); cursor: pointer; }
+.flanq-item-nom { font-size: 13px; }
+/* Le point quelconque n'est pas un point de la route : un filet l'en sépare. */
+.flanq-item-carte { border-top: 1px solid var(--line); font-style: italic; color: var(--muted); }
+
+/* --- Modale « Rechercher » ---
+   Un peu plus large et de hauteur FIXE : la liste grandit à l'intérieur, sans
+   faire sauter la boîte à chaque frappe — on lit très mal une liste qui bouge. */
+.recherche-modal { width: min(620px, 94vw); display: flex; flex-direction: column; height: min(640px, 88vh); }
+.recherche-modal .modal-text { margin-bottom: 12px; font-size: .88rem; }
+
+.recherche-etat {
+  margin: 0 0 8px;
+  min-height: 1em;
+  font-size: .82rem;
+  color: var(--muted);
+}
+/* Base absente : ce n'est pas « aucun résultat », c'est une action à faire. */
+.recherche-etat.est-avert { color: var(--warn); font-weight: 600; }
+
+.recherche-liste {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.recherche-liste:empty { border-style: dashed; }
+
+/* Une ligne de résultat : le code en tête (colonne fixe, en chasse fixe pour que
+   les codes s'alignent), le nom, puis le détail qui départage deux terrains
+   homonymes. */
+.recherche-item {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  grid-template-areas: 'code nom' 'code detail';
+  column-gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+.recherche-item:last-child { border-bottom: 0; }
+.recherche-item:hover { background: rgba(58, 242, 75, .06); }
+/* Ligne visée au clavier : Entrée l'ouvre. Le liseré à gauche la distingue du
+   simple survol de la souris, qui peut être ailleurs. */
+.recherche-item.est-vise { background: rgba(58, 242, 75, .06); border-left-color: var(--accent); }
+.recherche-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.recherche-code {
+  grid-area: code;
+  align-self: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent);
+}
+.recherche-nom { grid-area: nom; font-size: 13px; font-weight: 600; color: var(--title); }
+.recherche-detail { grid-area: detail; font-size: 11px; color: var(--muted); }
+
+/* --- Message bref au-dessus de la carte (export GTN750, désignation d'un point
+   de flanquement). Transparent aux clics : il ne doit jamais gêner le geste
+   qu'il accompagne. --- */
+.map-toast {
+  position: fixed;
+  z-index: 1300;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  max-width: 70vw;
+  padding: .5rem .9rem;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+  color: var(--ink);
+  font-size: 13px;
+  pointer-events: none;
+}
