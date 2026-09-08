@@ -379,6 +379,7 @@ async function rafraichirAeroports() {
     // comme les autres (l'icône d'aéroport recouvre sinon le marqueur du point).
     marker.on('mousedown', (ev) => {
       if (ev.originalEvent && ev.originalEvent.button !== 0) return;
+      if (saisiePointEnCours()) return;   // le clic est destiné à une mesure / un flanquement
       const code = (a.code || a.ident || '').toUpperCase();
       const k = routeWaypoints.findIndex((w) => (w.code || '').toUpperCase() === code);
       if (k < 0) return;   // pas un point tournant → comportement normal
@@ -720,6 +721,22 @@ let routeWaypoints = [];
 let _routeTimer = null;
 let _routeReqId = 0;
 let _routeDragging = false;   // drag de création/déplacement d'un point en cours
+
+// Épaisseur de la zone de saisie d'un leg (insertion d'un point tournant par
+// clic-glisser). Le trait visible fait 3 px ; on ajoute 3 px de chaque côté.
+const LARGEUR_PRISE_LEG = 9;
+
+// Un outil attend-il un clic sur la carte ? Mesure de distance en cours de
+// tracé, ou flanquement en attente de sa cible. Le tracé de la route capte le
+// clic sur ses legs et sur ses points : sans cette question, un seul geste
+// ferait deux choses — finir la mesure ET insérer un point tournant. Les gardes
+// vivent dans les fichiers de fonctionnalité, chargés APRÈS celui-ci : d'où les
+// tests d'existence, qui rendent la question sûre même si l'un d'eux manque.
+function saisiePointEnCours() {
+  if (typeof mesureEnCours === 'function' && mesureEnCours()) return true;
+  if (typeof flanquementAttendPoint === 'function' && flanquementAttendPoint()) return true;
+  return false;
+}
 
 function planifierLigneRoute() {
   if (_routeTimer) clearTimeout(_routeTimer);
@@ -1089,8 +1106,41 @@ function construirePlan() {
     // Flanquements VOR : identité de la station et positions seulement — radial
     // et distance se recalculent à l'ouverture, la déclinaison ayant pu changer.
     flanquements: flanquementsEnregistrables(),
+    // Paramètres de navigation (vitesse propre, vent prévu) : ils font partie de
+    // la préparation du vol au même titre que les altitudes de legs.
+    ...paramsNavEnregistrables(),
     cree: new Date().toISOString(),
   };
+}
+
+// --- Plan enregistré ou non ---
+//
+// Plutôt qu'un drapeau « modifié » posé à la main dans les vingt endroits qui
+// touchent au plan — champs ICAO, points tournants, altitudes, inversion,
+// flanquements, paramètres de navigation —, on compare une SIGNATURE du plan
+// courant à celle du dernier enregistrement. Un seul point de vérité, calculé
+// à la demande : aucun oubli possible quand une nouvelle donnée entrera dans le
+// plan, puisqu'elle entrera du même coup dans la signature.
+//
+// `cree` en est retirée : cet horodatage change à chaque appel et ferait passer
+// pour modifié un plan qu'on vient d'enregistrer.
+let _planSignatureEnregistree = null;
+
+function signaturePlan() {
+  const p = construirePlan();
+  delete p.cree;
+  return JSON.stringify(p);
+}
+
+function marquerPlanEnregistre() {
+  _planSignatureEnregistree = signaturePlan();
+}
+
+// Y a-t-il du travail à perdre ? Un plan incomplet (sans départ ou sans arrivée)
+// ne peut de toute façon pas être écrit : proposer de l'enregistrer offrirait un
+// bouton sans effet. On s'aligne donc sur la règle du bouton « Sauvegarder ».
+function planNonEnregistre() {
+  return planEnregistrable() && signaturePlan() !== _planSignatureEnregistree;
 }
 
 // Le plan n'est enregistrable que s'il a au moins un ICAO départ ET arrivée.
@@ -1103,8 +1153,11 @@ function majBoutonsPlan() {
   $('btn-export-gtn750').disabled = !pret;
 }
 
-$('btn-save-plan').addEventListener('click', async () => {
-  if (!planEnregistrable()) return;   // garde-fou (le bouton est aussi désactivé)
+// Ouvre le dialogue natif d'enregistrement. Renvoie true si le plan a bien été
+// écrit — la fermeture de l'application s'en sert pour savoir si elle peut
+// continuer, ou si le pilote a renoncé dans le sélecteur de fichier.
+async function enregistrerPlan() {
+  if (!planEnregistrable()) return false;   // garde-fou (le bouton est aussi désactivé)
   const dep = nettoyerIcao($('icao-dep').value);
   const arr = nettoyerIcao($('icao-arr').value);
   let res;
@@ -1113,10 +1166,14 @@ $('btn-save-plan').addEventListener('click', async () => {
   } catch (err) {
     res = { ok: false, error: (err && err.message) || String(err) };
   }
-  if (res && !res.ok && !res.canceled) {
+  if (res && res.ok) { marquerPlanEnregistre(); return true; }
+  if (res && !res.canceled) {
     console.error(t('savePlanErr').replace('{err}', res.error || '?'));
   }
-});
+  return false;
+}
+
+$('btn-save-plan').addEventListener('click', enregistrerPlan);
 
 // --- Chargement d'un plan de vol (.bcpfc) ---
 // Restaure l'état (ICAO, point d'arrivée ZZZZ, points tournants avec leurs codes)
@@ -1143,9 +1200,17 @@ function appliquerPlan(plan) {
     : [];
   _legAltDep = Number.isFinite(plan.departAlt) ? plan.departAlt : null;
   _legActif = 0;   // nouveau plan chargé → leg actif = premier
-  chargerFlanquements(plan.flanquements);
+  if ('vitessePropre' in plan || 'ventDir' in plan || 'ventKt' in plan) {
+    appliquerParamsNav({ vp: plan.vitessePropre, ventDir: plan.ventDir, ventKt: plan.ventKt });
+  }
   majBoutonsPlan();
-  majLigneRoute({ fit: true });   // re-résout les ICAO, redessine, recalcule la déclinaison, recadre sur le tracé
+  // La signature de référence n'est prise qu'une fois les chargements
+  // asynchrones retombés : mesurée tout de suite, elle décrirait un plan encore
+  // sans ses flanquements, et le plan passerait pour modifié dès son ouverture.
+  Promise.all([
+    chargerFlanquements(plan.flanquements),
+    majLigneRoute({ fit: true }),   // re-résout les ICAO, redessine, recalcule la déclinaison, recadre
+  ]).then(marquerPlanEnregistre).catch(marquerPlanEnregistre);
 }
 
 // Nouveau plan : réinitialise tout l'état (ICAO, points de dép./arr. cliqués,
@@ -1161,6 +1226,7 @@ function reinitialiserPlan() {
   effacerCercles();   // comme NavXpressVFR : « Nouveau plan » efface aussi les cercles
   effacerTousFlanquements();   // les flanquements visaient les points de CE plan
   effacerMesure();
+  _planSignatureEnregistree = null;   // plan vide : planEnregistrable() est faux, rien à perdre
   majBoutonsPlan();
   majLigneRoute();   // dép./arr. vides → la route est effacée
 }
@@ -1430,12 +1496,22 @@ function dessinerRoute(opts) {
     const legCol = i === actLeg ? LEG_COL_ACTIVE : (i < actLeg ? LEG_COL_PAST : LEG_COL_NEXT);
     L.polyline(latlngs, { color: '#ffffff', weight: 5, opacity: 1 }).addTo(routeLayer);
     const seg = L.polyline(latlngs, { color: legCol, weight: 3, opacity: 1 }).addTo(routeLayer);
+    // Zone de saisie invisible, posée PAR-DESSUS le trait : un tracé SVG ne
+    // capte le pointeur que sur l'épaisseur de son trait, soit ±1,5 px, ce qui
+    // demande une main sûre pour attraper un leg. Ce calque transparent porte
+    // donc tous les gestes du segment et élargit la prise à ±4,5 px, sans rien
+    // changer à ce qui est dessiné : c'est toujours `seg` qui s'épaissit au
+    // survol.
+    const prise = L.polyline(latlngs, { color: '#000000', weight: LARGEUR_PRISE_LEG, opacity: 0 }).addTo(routeLayer);
     dessinerEtiquetteLeg(points[i], disp[i], points[i + 1], disp[i + 1]);
     const segIndex = i;
-    seg.on('mouseover', () => { if (!_routeDragging) { seg.setStyle({ weight: 4 }); map.getContainer().style.cursor = 'crosshair'; } });
-    seg.on('mouseout', () => { if (!_routeDragging) { seg.setStyle({ weight: 3 }); map.getContainer().style.cursor = ''; } });
-    seg.on('mousedown', (e) => {
+    prise.on('mouseover', () => { if (!_routeDragging) { seg.setStyle({ weight: 4 }); map.getContainer().style.cursor = 'crosshair'; } });
+    prise.on('mouseout', () => { if (!_routeDragging) { seg.setStyle({ weight: 3 }); map.getContainer().style.cursor = ''; } });
+    prise.on('mousedown', (e) => {
       if (e.originalEvent && e.originalEvent.button !== 0) return;   // clic gauche seulement
+      // Une mesure ou un flanquement attend ce clic : on le laisse passer,
+      // sinon le geste insérerait un point tournant au lieu de désigner la cible.
+      if (saisiePointEnCours()) return;
       L.DomEvent.stopPropagation(e);
       L.DomEvent.preventDefault(e);
       // Le point est inséré à segIndex ; il occupe l'index segIndex+1 dans la suite.
@@ -1469,6 +1545,7 @@ function dessinerRoute(opts) {
     m.on('mouseout', () => { if (!_routeDragging) map.getContainer().style.cursor = ''; });
     m.on('mousedown', (e) => {
       if (e.originalEvent && e.originalEvent.button !== 0) return;   // clic gauche → déplacement
+      if (saisiePointEnCours()) return;   // le clic est destiné à une mesure / un flanquement
       L.DomEvent.stopPropagation(e);
       L.DomEvent.preventDefault(e);
       demarrerDeplacementPoint(idx);
@@ -1656,6 +1733,7 @@ function viderScan() {
   // Appelée une fois à l'amorçage, AVANT le chargement des fonctionnalités :
   // la rose des vents n'existe pas encore à ce moment-là.
   if (typeof majCompas === 'function') majCompas();
+  if (typeof libererCasesVent === 'function') libererCasesVent();
   if (map && planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
   if (map && planeTrack) { map.removeLayer(planeTrack); planeTrack = null; }
   $('wind-indicator').hidden = true;
@@ -1680,7 +1758,44 @@ function majScan(f) {
   majVent(f);
   majLegActifDepuisAvion(f);   // séquencement du leg actif selon la position avion
   majCompas();                 // rose des vents : suit l'avion, les caps et le vent
+  majVentPlanDepuisSim(f);     // vent du plan : rempli par le simulateur (1×/30 s)
 }
+
+// ============================================================
+// Fermeture de l'application : proposer d'enregistrer le plan de vol.
+//
+// Le processus principal suspend la fermeture et nous pose la question. On
+// répond aussitôt `false` — « je prends la main » — ce qui désarme son filet de
+// sécurité ; le pilote peut alors réfléchir sans être pressé. La fermeture ne
+// reprend qu'avec un second message, `true`.
+// ============================================================
+function fermerModaleQuitter() { $('quit-overlay').hidden = true; }
+
+window.bc.onCloseRequest(async () => {
+  if (!planNonEnregistre()) { window.bc.repondreFermeture(true); return; }
+  await window.bc.repondreFermeture(false);   // la question est à l'écran : plus de minuteur
+  $('quit-overlay').hidden = false;
+});
+
+$('btn-quit-cancel').addEventListener('click', fermerModaleQuitter);
+
+$('btn-quit-nosave').addEventListener('click', () => {
+  fermerModaleQuitter();
+  window.bc.repondreFermeture(true);
+});
+
+$('btn-quit-save').addEventListener('click', async () => {
+  $('btn-quit-save').disabled = true;
+  $('btn-quit-nosave').disabled = true;
+  const enregistre = await enregistrerPlan();
+  $('btn-quit-save').disabled = false;
+  $('btn-quit-nosave').disabled = false;
+  // Renoncer dans le sélecteur de fichier, c'est renoncer à quitter : on ne
+  // ferme pas l'application sur un enregistrement qui n'a pas eu lieu.
+  if (!enregistre) return;
+  fermerModaleQuitter();
+  window.bc.repondreFermeture(true);
+});
 
 // --- Câblage ---
 $('btn-connect').addEventListener('click', async () => {
@@ -1850,6 +1965,43 @@ window.bc.onCaptureState(({ canCapture, uid }) => {
   if (uid) captureUid = uid;
   setCaptureEnabled(!!canCapture);
 });
+// ============================================================
+// Vitesse verticale du toucher : affichage fugace en haut à gauche de la carte.
+//
+// Émise par la FSM à l'instant du contact (événement 'touchdown'), et non à la
+// finalisation du relevé : la dureté d'un poser se lit sur le moment. La valeur
+// est la plus forte descente relevée dans la seconde et demie qui précède —
+// mesurée avant que l'amortisseur ne l'absorbe (cf. fsm.js).
+// ============================================================
+const TOUCHER_FLASH_MS = 10000;
+let _toucherFlashTimer = null;
+
+// Un toucher se juge sur sa vitesse verticale, par paliers, comme le ferait un
+// instructeur : moins de 150 ft/min posé, au-delà de 400 sévère.
+function classeToucher(vs) {
+  const v = Math.abs(vs || 0);
+  if (v <= 150) return 'is-doux';
+  if (v <= 400) return 'is-moyen';
+  return 'is-dur';
+}
+
+function flasherToucher(vsFtMin) {
+  const el = $('toucher-flash');
+  if (!el) return;
+  const mesure = Number.isFinite(vsFtMin);
+  el.className = 'toucher-flash' + (mesure ? ' ' + classeToucher(vsFtMin) : '');
+  el.textContent = mesure ? `VS : ${Math.round(vsFtMin)} ft/min` : t('touchdownNotMeasured');
+  el.hidden = false;
+  // Un toucher chasse le précédent : le compte à rebours repart du nouveau.
+  if (_toucherFlashTimer) clearTimeout(_toucherFlashTimer);
+  _toucherFlashTimer = setTimeout(() => {
+    el.hidden = true;
+    _toucherFlashTimer = null;
+  }, TOUCHER_FLASH_MS);
+}
+
+window.bc.onTouchdown(({ vsFtMin } = {}) => flasherToucher(vsFtMin));
+
 window.bc.onLandingRecorded(() => { /* listé en fin de vol */ });
 window.bc.onFlightEnded(({ landings, flight }) => {
   flightLandings = (landings || []).map((l) => ({ ...l }));
@@ -2239,11 +2391,19 @@ $('btn-navaids-confirm-ok').addEventListener('click', async () => {
 });
 
 // ============================================================
-// Panneau « Plan de vol » — tableau des legs (tiers droit de la carte).
-// Une ligne par leg : départ, arrivée, cap magnétique (déclinaison locale du
-// leg déjà appliquée, cf. declinaisonEn), distance. Double-clic sur le nom d'un
-// point tournant → renommage en ligne, validé par Entrée puis répercuté sur la
-// carte.
+// Panneau « Plan de vol » — tableau des legs (droite de la carte).
+//
+// Une ligne par leg : n°, départ, arrivée, altitude prévue, distance, route
+// VRAIE, cap MAGNÉTIQUE à suivre, vitesse sol et durée. Les trois dernières
+// colonnes sortent du triangle des vitesses (vent-plan.js) et restent vides tant
+// qu'aucune vitesse propre n'est saisie dans le bandeau du panneau.
+//
+// La chaîne des angles se lit dans cet ordre : route vraie → dérive du vent →
+// déclinaison locale. Le passage en magnétique n'a lieu qu'au dernier terme,
+// avec la déclinaison DU LEG (declinaisonEn) et non une moyenne de route.
+//
+// Double-clic sur le nom d'un point tournant ou sur son altitude → édition en
+// ligne, validée par Entrée ou par un clic ailleurs, annulée par Échap.
 // ============================================================
 let _legEditing = false;   // une cellule de nom est en cours d'édition
 
@@ -2269,14 +2429,22 @@ function construireLegs(points, disp, wps) {
   const rows = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i], b = points[i + 1];
-    const capVrai = capVraiInitial(a.lat, disp[i], b.lat, disp[i + 1]);
+    // Route VRAIE du leg (la carte est nord-vrai) — c'est la colonne « Route »,
+    // et l'entrée du triangle des vitesses, le vent étant lui aussi en vrai.
+    const routeVraie = capVraiInitial(a.lat, disp[i], b.lat, disp[i + 1]);
     const decl = declinaisonEn((a.lat + b.lat) / 2, (disp[i] + disp[i + 1]) / 2);
-    const capMag = Math.round(((capVrai - decl) % 360 + 360) % 360);
+    const distNm = distanceNM(a.lat, disp[i], b.lat, disp[i + 1]);
+    // Triangle des vitesses sur la route NON arrondie ; null tant que la vitesse
+    // propre manque ou que le vent rend la route intenable.
+    const nav = legAvecTemps(routeVraie, distNm);
+    // Colonne « Cap » : cap MAGNÉTIQUE à suivre. Sans triangle (pas de Vp) il
+    // n'y a pas de dérive à ajouter — le cap vaut alors la route.
+    const capMag = (((nav ? nav.capVrai : routeVraie) - decl) % 360 + 360) % 360;
     rows.push({
       from: nomDe(i), to: nomDe(i + 1),
       fromWp: wpIdxDe(i), toWp: wpIdxDe(i + 1),
-      capMag, decl, distNm: distanceNM(a.lat, disp[i], b.lat, disp[i + 1]),
-      legIdx: i, alt: getLegAlt(i),
+      routeVraie, capMag, decl, distNm,
+      legIdx: i, alt: getLegAlt(i), nav,
     });
   }
   return rows;
@@ -2300,6 +2468,7 @@ function rafraichirTableauLegs() {
     tbody.innerHTML = '';
     if (empty) empty.hidden = false;
     if (totalEl) totalEl.textContent = '—';
+    afficherTempsTotal(null);
     return;
   }
   const points = [_routeDep, ...routeWaypoints, _routeArr];
@@ -2310,18 +2479,42 @@ function rafraichirTableauLegs() {
     const total = rows.reduce((s, r) => s + r.distNm, 0);
     totalEl.textContent = formatDistNM(total) + ' NM';
   }
+  // Temps total : la somme n'a de sens que si TOUS les legs en ont un.
+  afficherTempsTotal(rows.every((r) => r.nav) ? rows.reduce((s, r) => s + r.nav.secondes, 0) : null);
   const actLeg = legActifClamp();
+  const deg = (v) => String(Math.round(v) % 360).padStart(3, '0') + '°';
   tbody.innerHTML = rows.map((r) => {
-    const cap = String(r.capMag).padStart(3, '0');
-    const declTxt = (r.decl >= 0 ? '+' : '') + r.decl.toFixed(1);
-    const hint = escapeHtml(t('legsDeclHint').replace('{d}', declTxt));
-    const altTxt = `${r.alt} ft`;
+    // Le cap se lit à trois termes : route vraie, dérive du vent, déclinaison.
+    // L'infobulle les donne tous — c'est le calcul que le pilote referait à la main.
+    const capHint = escapeHtml(t('legsCapHint')
+      .replace('{r}', deg(r.routeVraie))
+      .replace('{v}', (r.nav && r.nav.derive >= 0 ? '+' : '') + (r.nav ? r.nav.derive.toFixed(0) : '0'))
+      .replace('{d}', (r.decl >= 0 ? '+' : '') + r.decl.toFixed(1)));
+    const sansTemps = escapeHtml(indiceSansTemps());
+    const gsTxt = r.nav ? String(Math.round(r.nav.vs)) : '—';
+    const tempsTxt = r.nav ? formatDuree(r.nav.secondes) : '—';
+    const tempsHint = r.nav ? '' : ` title="${sansTemps}"`;
     const rowCls = r.legIdx === actLeg ? ' class="leg-row-active"' : (r.legIdx < actLeg ? ' class="leg-row-past"' : '');
-    return `<tr data-leg="${r.legIdx}"${rowCls}>${celluleNom(r.from, r.fromWp)}${celluleNom(r.to, r.toWp)}`
-      + `<td class="legs-num" title="${hint}">${cap}°</td>`
-      + `<td class="legs-num legs-alt is-editable" data-leg="${r.legIdx}">${altTxt}</td>`
-      + `<td class="legs-num">${formatDistNM(r.distNm)}</td></tr>`;
+    return `<tr data-leg="${r.legIdx}"${rowCls}>`
+      + `<td class="legs-num legs-idx">${r.legIdx + 1}</td>`
+      + celluleNom(r.from, r.fromWp) + celluleNom(r.to, r.toWp)
+      + `<td class="legs-num legs-alt is-editable" data-leg="${r.legIdx}">${r.alt}</td>`
+      + `<td class="legs-num">${formatDistNM(r.distNm)}</td>`
+      + `<td class="legs-num" title="${escapeHtml(t('legsRouteHint'))}">${deg(r.routeVraie)}</td>`
+      + `<td class="legs-num" title="${capHint}">${deg(r.capMag)}</td>`
+      + `<td class="legs-num"${tempsHint}>${gsTxt}</td>`
+      + `<td class="legs-num"${tempsHint}>${tempsTxt}</td></tr>`;
   }).join('');
+}
+
+// Temps total dans l'en-tête : masqué tant qu'aucune vitesse propre n'est donnée
+// (rien à dire), « — » si le vent rend un leg intenable.
+function afficherTempsTotal(secondes) {
+  const wrap = $('legs-total-time-wrap');
+  const val = $('legs-total-time');
+  if (!wrap || !val) return;
+  wrap.hidden = !(_planVp > 0);
+  val.textContent = secondes == null ? '—' : formatDuree(secondes);
 }
 
 // Édition en ligne générique d'une cellule du tableau : Entrée valide (via
@@ -2335,7 +2528,7 @@ function editerCelluleTableau(td, { initial, maxLength, numeric, onValider }) {
   input.className = 'legs-cell-input';
   input.maxLength = maxLength;
   input.value = initial;
-  if (numeric) { input.inputMode = 'numeric'; input.style.textAlign = 'right'; }
+  if (numeric) { input.inputMode = 'numeric'; input.classList.add('legs-cell-input-num'); }
   td.textContent = '';
   td.appendChild(input);
   input.focus();
@@ -2352,7 +2545,9 @@ function editerCelluleTableau(td, { initial, maxLength, numeric, onValider }) {
     if (e.key === 'Enter') { e.preventDefault(); finir(true); }
     else if (e.key === 'Escape') { e.preventDefault(); finir(false); }
   });
-  input.addEventListener('blur', () => finir(false));
+  // Cliquer ailleurs VALIDE. Perdre sa saisie parce qu'on a cliqué à côté est
+  // le contraire de ce qu'on attend d'un tableau ; seule Échap annule.
+  input.addEventListener('blur', () => finir(true));
 }
 
 // Renommage d'un point tournant (met à jour la carte + le tableau).
@@ -2376,7 +2571,7 @@ function demarrerEditionAlt(td) {
   if (!(legIdx >= 0)) return;
   const cur = getLegAlt(legIdx);
   editerCelluleTableau(td, {
-    initial: cur != null ? String(cur) : '', maxLength: 6, numeric: true,
+    initial: cur != null ? String(cur) : '', maxLength: 5, numeric: true,
     onValider: (raw) => {
       const digits = raw.replace(/[^\d]/g, '');
       setLegAlt(legIdx, digits === '' ? null : Math.min(60000, parseInt(digits, 10)));

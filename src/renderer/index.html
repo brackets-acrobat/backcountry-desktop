@@ -129,6 +129,10 @@
   <main>
     <!-- Carte (fond OpenTopoMap), suit l'avion quand SimConnect est connecté -->
     <div id="map"></div>
+    <!-- Vitesse verticale du toucher, posée à droite des boutons de zoom et
+         retirée au bout de dix secondes. Transparente aux clics : elle passe
+         par-dessus la carte sans jamais l'empêcher de répondre. -->
+    <div id="toucher-flash" class="toucher-flash" hidden></div>
     <!-- Indicateur de vent (centré, même ligne que les menus déroulants de la carte) -->
     <div id="wind-indicator" class="wind-indicator" hidden>
       <i class="ph-light ph-arrow-fat-up wind-arrow" id="wind-arrow"></i>
@@ -138,18 +142,46 @@
     <aside id="legs-panel" class="legs-panel" hidden>
       <div class="legs-head">
         <span class="legs-title"><i class="ph-light ph-path"></i> <span data-i18n="legsTitle">Plan de vol</span></span>
-        <span class="legs-total"><span data-i18n="legsTotal">Distance totale</span> : <span id="legs-total-val" class="legs-total-num">—</span></span>
+        <span class="legs-total"><span data-i18n="legsTotal">Distance totale</span> : <span id="legs-total-val" class="legs-total-num">—</span><span id="legs-total-time-wrap" hidden> · <span id="legs-total-time" class="legs-total-num" data-i18n-title="legsTotalTime" title="Temps total">—</span></span></span>
         <button id="legs-close" class="legs-close" type="button" data-i18n-title="legsClose" title="Masquer"><i class="ph-light ph-x"></i></button>
+      </div>
+      <!-- Paramètres de navigation du plan : vitesse propre et vent prévu.
+           De ces deux valeurs se déduisent, pour chaque leg, la dérive, le cap à
+           suivre, la vitesse sol et donc la durée. -->
+      <div class="legs-nav">
+        <label class="legs-nav-lbl" for="nav-vp" data-i18n="navVp">Vp</label>
+        <input id="nav-vp" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"
+               autocomplete="off" spellcheck="false" placeholder="—"
+               data-i18n-title="navVpTitle" title="Vitesse propre">
+        <span class="legs-nav-u">kt</span>
+        <span class="legs-nav-sep">|</span>
+        <label class="legs-nav-lbl" for="nav-vent-dir" data-i18n="navVent">Vent</label>
+        <input id="nav-vent-dir" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"
+               autocomplete="off" spellcheck="false" placeholder="—"
+               data-i18n-title="navVentDirTitle" title="Direction d'où vient le vent">
+        <span class="legs-nav-u">°</span>
+        <span class="legs-nav-sep">/</span>
+        <input id="nav-vent-kt" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"
+               autocomplete="off" spellcheck="false" placeholder="—"
+               data-i18n-title="navVentKtTitle" title="Force du vent">
+        <span class="legs-nav-u">kt</span>
+        <!-- Visible tant que le simulateur alimente les deux cases (verrouillées) -->
+        <span id="nav-vent-src" class="legs-nav-src" data-i18n-title="navVentSimTitle"
+              title="Vent du simulateur" hidden>MSFS</span>
       </div>
       <div class="legs-scroll">
         <table class="legs-table">
           <thead>
             <tr>
+              <th class="legs-num" data-i18n="legsColNum">N°</th>
               <th data-i18n="legsColFrom">Départ</th>
               <th data-i18n="legsColTo">Arrivée</th>
-              <th class="legs-num" data-i18n="legsColHdg">Cap</th>
-              <th class="legs-num" data-i18n="legsColAlt">Altitude</th>
-              <th class="legs-num" data-i18n="legsColDist">Dist.</th>
+              <th class="legs-num" data-i18n="legsColAlt">Alt (ft)</th>
+              <th class="legs-num" data-i18n="legsColDist">Dist (nm)</th>
+              <th class="legs-num" data-i18n="legsColRoute">Route (°)</th>
+              <th class="legs-num" data-i18n="legsColHdg">Cap (°)</th>
+              <th class="legs-num" data-i18n="legsColGs">GS (kt)</th>
+              <th class="legs-num" data-i18n="legsColTime">Durée</th>
             </tr>
           </thead>
           <tbody id="legs-tbody"></tbody>
@@ -357,6 +389,19 @@
     </div>
   </div>
 
+  <!-- Modale : plan de vol non enregistré au moment de quitter -->
+  <div id="quit-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-floppy-disk"></i> <span data-i18n="quitSaveTitle">Enregistrer le plan de vol ?</span></h3>
+      <p class="modal-text" data-i18n="quitSaveText">Le plan de vol en cours n'a pas été enregistré depuis sa dernière modification. Il sera perdu si vous quittez maintenant.</p>
+      <div class="modal-actions">
+        <button id="btn-quit-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-quit-nosave" class="btn btn-danger"><span data-i18n="quitWithoutSaving">Quitter sans enregistrer</span></button>
+        <button id="btn-quit-save" class="btn btn-accent"><i class="ph-light ph-floppy-disk"></i> <span data-i18n="quitSaveAndQuit">Enregistrer et quitter</span></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modale : confirmation « Nouveau plan de vol » (abandon du plan en cours) -->
   <div id="newplan-overlay" class="overlay" hidden>
     <div class="modal">
@@ -415,6 +460,7 @@
   <script src="renderer.js"></script>
   <!-- Fonctionnalités : chargées APRÈS le socle (renderer.js), dont elles
        réutilisent la carte, la route, la déclinaison et les modales. -->
+  <script src="js/features/vent-plan.js"></script>
   <script src="js/features/chronos.js"></script>
   <script src="js/features/recherche-lieux.js"></script>
   <script src="js/features/inverser-plan.js"></script>

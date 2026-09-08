@@ -32,6 +32,12 @@ const TRANSLATIONS = {
     newPlanTitle: 'Nouveau plan de vol',
     newPlanText: 'Le plan de vol en cours sera abandonné. Continuer ?',
     newPlanConfirm: 'Nouveau plan',
+
+    // Fermeture de l'application avec un plan de vol non enregistré
+    quitSaveTitle: 'Enregistrer le plan de vol ?',
+    quitSaveText: 'Le plan de vol en cours n\'a pas été enregistré depuis sa dernière modification. Il sera perdu si vous quittez maintenant.',
+    quitWithoutSaving: 'Quitter sans enregistrer',
+    quitSaveAndQuit: 'Enregistrer et quitter',
     openPlanTooltip: 'Ouvrir un plan de vol',
     openPlanTitle: 'Ouvrir un plan de vol',
     openPlanErr: 'Échec de l\'ouverture : {err}',
@@ -197,13 +203,29 @@ const TRANSLATIONS = {
     legsClose: 'Masquer le plan de vol',
     legsTitle: 'Plan de vol',
     legsTotal: 'Distance totale',
+    legsColNum: 'N°',
     legsColFrom: 'Départ',
     legsColTo: 'Arrivée',
-    legsColHdg: 'Cap',
-    legsColAlt: 'Altitude',
-    legsColDist: 'Dist.',
+    legsColAlt: 'Alt (ft)',
+    legsColDist: 'Dist (nm)',
+    legsColRoute: 'Route (°)',
+    legsColHdg: 'Cap (°)',
+    legsColGs: 'GS (kt)',
+    legsColTime: 'Durée',
     legsEmpty: 'Aucun plan de vol.',
-    legsDeclHint: 'Déclinaison magnétique {d}° (prise en compte dans le cap)',
+    legsTotalTime: 'Temps total estimé',
+    legsRouteHint: 'Route vraie du leg (la carte est orientée au nord vrai)',
+    legsCapHint: 'Cap magnétique à suivre = route {r} · dérive {v}° · déclinaison {d}°',
+    legsTimeNoVp: 'Renseignez la vitesse propre (Vp) pour obtenir la vitesse sol et la durée.',
+    legsTimeImpossible: 'Vent trop fort pour cette route : aucune solution au triangle des vitesses.',
+
+    // Bandeau de navigation du panneau « Plan de vol »
+    navVp: 'Vp',
+    navVpTitle: 'Vitesse propre (kt)',
+    navVent: 'Vent',
+    navVentDirTitle: 'Direction d\'où vient le vent (degrés vrais)',
+    navVentKtTitle: 'Force du vent (kt)',
+    navVentSimTitle: 'Vent fourni par le simulateur — cases verrouillées',
 
     // Profil vertical (relief GLOBE le long du plan de vol)
     vertProfileToggle: 'Afficher le profil vertical',
@@ -246,6 +268,9 @@ const TRANSLATIONS = {
 
     // Altitude sol (bandeau live, à droite de l'altitude MSL)
     lblAgl: 'Altitude AGL',
+
+    // Vitesse verticale du toucher (cartouche fugace sur la carte)
+    touchdownNotMeasured: 'VS du toucher non mesurée',
 
     // Chronomètre (MM:SS) et temps de vol (HH:MM:SS)
     chronoLabel: 'Chronomètre',
@@ -318,6 +343,12 @@ const TRANSLATIONS = {
     newPlanTitle: 'New flight plan',
     newPlanText: 'The current flight plan will be discarded. Continue?',
     newPlanConfirm: 'New plan',
+
+    // Closing the application with an unsaved flight plan
+    quitSaveTitle: 'Save the flight plan?',
+    quitSaveText: 'The current flight plan has not been saved since it was last changed. It will be lost if you quit now.',
+    quitWithoutSaving: 'Quit without saving',
+    quitSaveAndQuit: 'Save and quit',
     openPlanTooltip: 'Open a flight plan',
     openPlanTitle: 'Open a flight plan',
     openPlanErr: 'Open failed: {err}',
@@ -483,13 +514,29 @@ const TRANSLATIONS = {
     legsClose: 'Hide flight plan',
     legsTitle: 'Flight plan',
     legsTotal: 'Total distance',
+    legsColNum: 'No.',
     legsColFrom: 'From',
     legsColTo: 'To',
-    legsColHdg: 'Hdg',
-    legsColAlt: 'Altitude',
-    legsColDist: 'Dist.',
+    legsColAlt: 'Alt (ft)',
+    legsColDist: 'Dist (nm)',
+    legsColRoute: 'Track (°)',
+    legsColHdg: 'Hdg (°)',
+    legsColGs: 'GS (kt)',
+    legsColTime: 'Time',
     legsEmpty: 'No flight plan.',
-    legsDeclHint: 'Magnetic declination {d}° (applied to the heading)',
+    legsTotalTime: 'Estimated total time',
+    legsRouteHint: 'True track of the leg (the map is true-north oriented)',
+    legsCapHint: 'Magnetic heading to fly = track {r} · drift {v}° · declination {d}°',
+    legsTimeNoVp: 'Enter the true airspeed (TAS) to get ground speed and time.',
+    legsTimeImpossible: 'Wind too strong for this track: the wind triangle has no solution.',
+
+    // Navigation bar of the "Flight plan" panel
+    navVp: 'TAS',
+    navVpTitle: 'True airspeed (kt)',
+    navVent: 'Wind',
+    navVentDirTitle: 'Direction the wind comes from (true degrees)',
+    navVentKtTitle: 'Wind speed (kt)',
+    navVentSimTitle: 'Wind supplied by the simulator — fields locked',
 
     // Vertical profile (GLOBE terrain along the flight plan)
     vertProfileToggle: 'Show vertical profile',
@@ -531,6 +578,9 @@ const TRANSLATIONS = {
 
     // Height above ground (live bar, right of the MSL altitude)
     lblAgl: 'AGL altitude',
+
+    // Touchdown vertical speed (transient badge on the map)
+    touchdownNotMeasured: 'Touchdown VS not measured',
 
     // Stopwatch (MM:SS) and flight time (HH:MM:SS)
     chronoLabel: 'Stopwatch',

@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('bc', {
   ouvrirPlan: (payload) => ipcRenderer.invoke('ouvrir-plan', payload),
   exporterGtn750: (payload) => ipcRenderer.invoke('exporter-gtn750', payload),
 
+  // Fermeture de la fenêtre : le main demande, le renderer répond.
+  repondreFermeture: (quitter) => ipcRenderer.invoke('app-close-reply', { quitter }),
+
   // Lieux de poser des utilisateurs (base du site)
   lieux: () => ipcRenderer.invoke('lieux-all'),
 
@@ -68,6 +71,8 @@ contextBridge.exposeInMainWorld('bc', {
   onConfig:          (cb) => subscribe('app-config', cb),
   onStatus:          (cb) => subscribe('sc-status', cb),
   onScan:            (cb) => subscribe('sc-scan', cb),
+  onTouchdown:       (cb) => subscribe('fsm-touchdown', cb),
+  onCloseRequest:    (cb) => subscribe('app-close-request', cb),
   onLandingRecorded: (cb) => subscribe('fsm-landing-recorded', cb),
   onCaptureState:    (cb) => subscribe('fsm-capture-state', cb),
   onFlightEnded:     (cb) => subscribe('fsm-flight-ended', cb),

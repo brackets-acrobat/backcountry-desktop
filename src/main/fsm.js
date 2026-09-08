@@ -20,7 +20,7 @@
 //     d'envoi groupé.
 //
 // Découplé de l'IPC : feed(frame) en entrée, emit(event, payload) en sortie.
-// Événements : 'landing-recorded' | 'capture-state' | 'flight-ended'.
+// Événements : 'touchdown' | 'landing-recorded' | 'capture-state' | 'flight-ended'.
 // ============================================================
 
 const { randomUUID } = require('crypto');
@@ -33,6 +33,13 @@ const HEADING_CUTOFF_KT = 20;
 const ROLL_CUTOFF_KT = 5;    // fin du roulage d'atterrissage : vitesse sol < 5 kt
 const STOP_KT = 0.5;
 const STOP_HOLD_MS = 1500;
+// Vitesse verticale du toucher : on retient la plus FORTE descente observée dans
+// la seconde et demie qui précède le contact, et non la valeur de l'image du
+// contact elle-même. À l'instant précis où les roues touchent, l'amortisseur a
+// déjà commencé à rendre la Vs : la lire là sous-estime systématiquement le
+// poser. Le pilote, lui, juge le toucher sur le taux de chute qu'il avait en
+// arrivant.
+const VS_FENETRE_MS = 1500;
 
 const degToRad = (d) => (d * Math.PI) / 180;
 const radToDeg = (r) => (r * 180) / Math.PI;
@@ -62,6 +69,16 @@ function createFsm({ emit = () => {} } = {}) {
   // Temps de vol BLOC : du 1er décollage du vol à l'arrêt moteur final.
   let flightStartSimLocal = null;
   let flightStartT = 0;
+  // Tampon tournant des vitesses verticales en vol, purgé par le temps.
+  let vsRecentes = [];   // [{ t, vs }] sur les VS_FENETRE_MS dernières millisecondes
+
+  // Vs retenue pour le toucher : la plus négative de la fenêtre. null si aucune
+  // image n'a été captée (connexion à peine ouverte, ou SimVar absente) — on le
+  // dira plutôt que d'afficher un chiffre inventé.
+  function vsDuToucher() {
+    if (vsRecentes.length === 0) return null;
+    return vsRecentes.reduce((min, x) => (x.vs < min ? x.vs : min), vsRecentes[0].vs);
+  }
 
   function newSession(f) {
     return {
@@ -155,6 +172,13 @@ function createFsm({ emit = () => {} } = {}) {
     feed(f) {
       if (!f) return;
 
+      // En vol : on garde les Vs récentes pour pouvoir juger le toucher à venir.
+      if (!f.onGround && Number.isFinite(f.vsFtMin)) {
+        vsRecentes.push({ t: f.t, vs: f.vsFtMin });
+        const limite = f.t - VS_FENETRE_MS;
+        while (vsRecentes.length && vsRecentes[0].t < limite) vsRecentes.shift();
+      }
+
       if (!f.onGround && f.aglFt > AIRBORNE_AGL_FT) {
         airborne = true;
         flightEnded = false;          // un nouveau vol est en cours
@@ -167,12 +191,18 @@ function createFsm({ emit = () => {} } = {}) {
 
       // POSER : on touche le sol après avoir été en l'air → nouvelle session.
       if (airborne && f.onGround && !session) {
+        // Vs mesurée AVANT de vider le tampon : c'est tout ce qui reste du vol.
+        const vsToucher = vsDuToucher();
+        vsRecentes = [];
         session = newSession(f);
         airborne = false;
         currentUid = null;            // bouton capture désactivé pendant le roulage
         stopSince = 0;
         sample(f);
         lastSampleT = f.t;
+        // Émis à l'instant du contact, et non à la finalisation : la dureté du
+        // poser se lit sur le moment, pas une fois l'appareil arrêté.
+        emit('touchdown', { vsFtMin: vsToucher == null ? null : Math.round(vsToucher) });
       } else if (session) {
         // Roulage : échantillonnage 0,5 s.
         if (f.t - lastSampleT >= SAMPLE_MS) { sample(f); lastSampleT = f.t; }
@@ -225,6 +255,7 @@ function createFsm({ emit = () => {} } = {}) {
       airborne = false; session = null; lastSampleT = 0; stopSince = 0;
       pending = []; currentUid = null; lastCanCapture = null; flightEnded = false;
       flightStartSimLocal = null; flightStartT = 0;
+      vsRecentes = [];
     },
   };
 }

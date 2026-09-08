@@ -42,6 +42,15 @@ try {
 } catch (_) { /* repli silencieux sur l'emplacement par défaut */ }
 
 let mainWindow = null;
+// Fermeture : le renderer a son mot à dire (plan de vol non enregistré). Tant
+// qu'il n'a pas répondu « on peut quitter », la fenêtre reste ouverte.
+let fermetureAutorisee = false;
+let fermetureTimer = null;
+// Filet de sécurité : si le renderer ne répond pas du tout — page plantée ou
+// figée — l'application doit rester quittable. Il ne court QUE jusqu'à la
+// première réponse : une fois la question posée à l'écran, le pilote prend le
+// temps qu'il veut.
+const FERMETURE_DELAI_MS = 3000;
 let config = chargerConfig();
 const sim = new SimConnectClient();
 
@@ -158,6 +167,22 @@ function createWindow() {
   });
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Une fenêtre recréée (macOS, événement 'activate') repart d'une fermeture
+  // non autorisée.
+  fermetureAutorisee = false;
+
+  mainWindow.on('close', (e) => {
+    if (fermetureAutorisee) return;
+    e.preventDefault();
+    if (fermetureTimer) clearTimeout(fermetureTimer);
+    fermetureTimer = setTimeout(() => {
+      fermetureTimer = null;
+      fermetureAutorisee = true;
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+    }, FERMETURE_DELAI_MS);
+    try { mainWindow.webContents.send('app-close-request'); } catch (_) { /* page morte : le minuteur fera le travail */ }
+  });
 
   // Liens externes (ex. « Voir le détail » d'un lieu dans les popups carte) :
   // ouverts dans le navigateur par défaut, jamais dans une fenêtre Electron.
@@ -702,6 +727,17 @@ ipcMain.handle('declinaison', async (_e, { lat, lon } = {}) => {
 
 // Lieux de poser des utilisateurs (depuis la base du site, GET /api/lieux).
 ipcMain.handle('lieux-all', async () => recupererLieux(config));
+
+// Réponse du renderer à la demande de fermeture. Elle arrive en deux temps :
+// d'abord `quitter: false` dès que la question est posée à l'écran — ce qui
+// désarme le filet de sécurité —, puis `quitter: true` quand le pilote a tranché.
+ipcMain.handle('app-close-reply', async (_e, { quitter } = {}) => {
+  if (fermetureTimer) { clearTimeout(fermetureTimer); fermetureTimer = null; }
+  if (!quitter) return { ok: true };
+  fermetureAutorisee = true;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  return { ok: true };
+});
 
 // Redémarre et installe la mise à jour téléchargée (clic sur la bannière).
 ipcMain.handle('update-install', async () => { quitAndInstall(); return { ok: true }; });

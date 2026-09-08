@@ -54,6 +54,10 @@ let _flanqNavaidEnAttente = null;
 let _flanqCibles = [];
 let _flanqNavaidPourPoint = null;   // station en attente d'un point désigné à la souris
 
+// Le tracé de la route écoute le clic sur ses legs : sans cette question, le
+// clic qui désigne la cible d'un flanquement insérerait un point tournant.
+function flanquementAttendPoint() { return !!_flanqNavaidPourPoint; }
+
 function estStationVor(n) {
   return !!n && FLANQ_TYPES_VOR.has(String(n.type || '').toUpperCase());
 }

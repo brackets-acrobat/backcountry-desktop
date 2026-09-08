@@ -18,6 +18,12 @@
   --danger:       #ff5252;   /* erreurs / alertes */
   --warn:         #ff9f1c;   /* orange — alerte moyenne */
   --mono:         'Consolas', 'Monaco', 'Courier New', monospace;
+  /* Largeur du panneau « Plan de vol ». Ses neuf colonnes réclament plus que
+     l'ancien tiers de carte : mesurées à 13 px en chasse fixe, elles occupent
+     environ 680 px. En dessous, .legs-scroll défile horizontalement plutôt que
+     de tronquer. Déclarée ici parce que trois règles doivent rester d'accord :
+     le panneau, les contrôles Leaflet et la bande du profil vertical. */
+  --legs-w:       max(40%, 680px);
 }
 
 * { box-sizing: border-box; }
@@ -299,8 +305,7 @@ main { flex: 1; min-height: 0; padding: 0; position: relative; }
 .legs-panel {
   position: absolute;
   top: 0; right: 0; bottom: 0;
-  width: 33.333%;
-  min-width: 300px;
+  width: var(--legs-w);
   z-index: 900;                 /* au-dessus des tuiles/marqueurs, sous les contrôles Leaflet (1000) */
   display: flex;
   flex-direction: column;
@@ -311,8 +316,8 @@ main { flex: 1; min-height: 0; padding: 0; position: relative; }
 .legs-panel[hidden] { display: none; }
 
 /* Panneau ouvert : décale les contrôles carte (haut-droite) juste à gauche du
-   panneau (largeur = max(33.333%, 300px), comme .legs-panel) pour les garder cliquables. */
-main.legs-open .leaflet-top.leaflet-right { right: max(33.333%, 300px); transition: right .15s ease; }
+   panneau pour les garder cliquables. */
+main.legs-open .leaflet-top.leaflet-right { right: var(--legs-w); transition: right .15s ease; }
 .leaflet-top.leaflet-right { transition: right .15s ease; }
 .legs-head {
   display: flex;
@@ -333,7 +338,56 @@ main.legs-open .leaflet-top.leaflet-right { right: max(33.333%, 300px); transiti
 .legs-close:hover { border-color: var(--accent); background: var(--panel-2); }
 .legs-close i[class^="ph-"] { font-size: 16px; }
 
-.legs-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+/* Bandeau des paramètres de navigation (Vp + vent prévu), entre l'en-tête du
+   panneau et le tableau. */
+.legs-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 7px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.legs-nav-lbl { color: var(--title); font-weight: 600; }
+.legs-nav-u { color: var(--muted); }
+/* Séparateurs : visibles, mais clairement en retrait du texte. */
+.legs-nav-sep { color: #555; }
+.legs-nav-in {
+  width: 46px;
+  box-sizing: border-box;
+  padding: 2px 5px;
+  text-align: right;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.legs-nav-in:focus { outline: none; border-color: var(--accent); }
+.legs-nav-in::placeholder { color: #555; }
+/* Cases verrouillées : le simulateur les alimente, la frappe n'y ferait rien. */
+.legs-nav-in[readonly] { background: var(--bg); color: var(--muted); cursor: not-allowed; }
+/* Pastille « MSFS » : signale d'où vient le vent affiché. */
+.legs-nav-src {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0c1a0c;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+.legs-nav-src[hidden] { display: none; }
+
+/* Neuf colonnes : sur une fenêtre étroite, ou avec un nom de point très long,
+   le tableau peut déborder en largeur — on le laisse défiler plutôt que de
+   rogner une valeur. */
+.legs-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: auto; }
 .legs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .legs-table thead th {
   position: sticky; top: 0; z-index: 1;
@@ -342,11 +396,19 @@ main.legs-open .leaflet-top.leaflet-right { right: max(33.333%, 300px); transiti
   font-weight: 600; border-bottom: 1px solid var(--line);
 }
 .legs-table th.legs-num, .legs-table td.legs-num { text-align: right; font-family: var(--mono); }
+/* Les colonnes chiffrées gardent leur largeur ; ce sont les NOMS qui cèdent.
+   Un point tournant renommé peut être long : plutôt que de le tronquer ou de
+   pousser tout le tableau hors du panneau, on le laisse passer à la ligne. */
+.legs-table td.legs-name { white-space: normal; overflow-wrap: anywhere; min-width: 9ch; }
 .legs-table td {
   padding: 6px 8px; color: var(--ink);
   border-bottom: 1px solid var(--line); white-space: nowrap;
 }
 .legs-table td.legs-num { color: var(--accent); }
+/* Le n° de leg est un repère, pas une mesure : il n'a pas la couleur d'accent.
+   Déclaré APRÈS .legs-num : la cellule porte les deux classes, et à spécificité
+   égale c'est l'ordre du fichier qui tranche. */
+.legs-table td.legs-idx { color: var(--muted); font-weight: 700; }
 .legs-table tbody tr:hover td { background: rgba(58, 242, 75, .06); }
 
 /* État du leg dans le tableau (aligné sur les couleurs carte) :
@@ -367,6 +429,17 @@ main.legs-open .leaflet-top.leaflet-right { right: max(33.333%, 300px); transiti
   color: var(--title); font: inherit;
 }
 .legs-cell-input:focus { outline: none; }
+/* Saisie d'un nombre (altitude d'un leg). La cellule est large parce que son
+   en-tête l'est (« Alt (ft) »), mais la valeur ne dépasse jamais cinq chiffres :
+   un champ pleine largeur y paraissait démesuré. On le taille à six caractères
+   — cinq chiffres et une respiration — en ajoutant les 8 px de bordure et de
+   marge intérieure (2×1 + 2×3) que border-box prendrait sinon sur le texte.
+   La cellule étant en chasse fixe, 1ch vaut exactement un chiffre. */
+.legs-cell-input-num {
+  width: calc(6ch + 8px);
+  max-width: 100%;
+  text-align: right;
+}
 
 .legs-empty { padding: 16px 12px; color: var(--muted); font-size: 13px; }
 .legs-empty[hidden] { display: none; }
@@ -387,7 +460,7 @@ main.legs-open .leaflet-top.leaflet-right { right: max(33.333%, 300px); transiti
   box-shadow: 0 -6px 20px rgba(0, 0, 0, .45);
 }
 .vp-panel[hidden] { display: none; }
-main.legs-open .vp-panel { right: max(33.333%, 300px); }   /* laisse la place au panneau des legs */
+main.legs-open .vp-panel { right: var(--legs-w); }   /* laisse la place au panneau des legs */
 
 /* Profil ouvert : remonte les contrôles Leaflet du bas (barre d'échelle km/mi/NM,
    attribution) juste au-dessus de la bande, pour ne pas les chevaucher. */
@@ -411,6 +484,36 @@ main.profil-open .leaflet-bottom { bottom: var(--vp-h, 210px); }
 .vp-empty { color: var(--muted); font-size: 12px; padding: 20px 6px; text-align: center; }
 .vp-summary { color: var(--ink); font-size: 12px; margin-bottom: 6px; }
 .vp-summary-warn { color: var(--warn); font-weight: 600; }
+
+/* Vitesse verticale du toucher : cartouche fugace en haut à gauche, posé à
+   droite des boutons de zoom. Ce n'est pas une modale : rien n'est bloqué, il
+   se retire seul au bout de dix secondes et laisse la carte répondre pendant ce
+   temps. Fond BLANC OPAQUE comme l'indicateur de vent — sur un fond de carte
+   clair, un cartouche sombre translucide délaverait la couleur du toucher au
+   point de la rendre indécelable. */
+.toucher-flash {
+  position: absolute;
+  top: 10px;
+  left: 52px;
+  z-index: 1000;
+  padding: 3px 12px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .4);
+  color: #000;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;   /* ne bloque pas l'interaction carte */
+}
+.toucher-flash[hidden] { display: none; }
+/* Trois tons franchement chromatiques, choisis pour être LISIBLES SUR BLANC :
+   le vert d'accent de l'application (#3af24b) y serait illisible. */
+.toucher-flash.is-doux  { color: #0a7d32; }
+.toucher-flash.is-moyen { color: #b45309; }
+.toucher-flash.is-dur   { color: #c0261a; }
 
 /* Indicateur de vent : centré horizontalement, même ligne que les menus carte */
 .wind-indicator {

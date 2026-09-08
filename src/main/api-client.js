@@ -86,6 +86,23 @@ function envoyerVol(cfg, vol) {
           'Content-Length': body.length,
           'X-Api-Key': cfg.apiKey || '',
           'User-Agent': 'BackcountryPathfinders-Desktop',
+          // CONTOURNEMENT PROVISOIRE — à retirer dès que l'hébergeur aura corrigé.
+          //
+          // Une règle de sécurité côté hébergement (o2switch) rejette toute
+          // requête multipart/form-data comportant un fichier lorsqu'elle
+          // n'a PAS d'en-tête Referer. Le refus n'est pas franc : la requête
+          // est détournée vers un chemin inconnu, si bien que le site rend sa
+          // page 404 — d'où un diagnostic long.
+          //
+          // Mesuré : avec fichier et sans Referer → 404 ; la MÊME requête avec
+          // Referer → le contrôleur répond normalement. Ni l'User-Agent, ni
+          // Origin, ni le chemin, ni la taille n'y changent rien.
+          //
+          // La règle vise le CSRF, qui ne concerne pas cet endpoint :
+          // l'authentification s'y fait par X-Api-Key, pas par un cookie de
+          // session. Une application native n'a par ailleurs aucune page
+          // d'origine à déclarer — on pointe donc l'origine du service lui-même.
+          Referer: url.origin + '/',
         },
       },
       (res) => {
