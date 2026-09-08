@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('bc', {
   msfsExtraireNavaids: () => ipcRenderer.invoke('extraire-navaids-msfs'),
   onMsfsNavaidsProgress: (cb) => subscribe('msfs-navaids-progress', cb),
 
+  // Détection des terrains fournis par un paquet add-on
+  addonsEtat: () => ipcRenderer.invoke('addons-etat'),
+  addonsChoisirDossier: () => ipcRenderer.invoke('addons-choisir-dossier'),
+  addonsScanner: (racine) => ipcRenderer.invoke('addons-scanner', { racine }),
+
   // Import des données d'élévation (GLOBE all10g.zip)
   elevationExiste: () => ipcRenderer.invoke('elevation-existe'),
   importerElevation: () => ipcRenderer.invoke('importer-elevation'),

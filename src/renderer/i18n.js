@@ -174,6 +174,20 @@ const TRANSLATIONS = {
     navaidsExtractEmpty: 'Aucun navaid extrait. Vérifiez que MSFS 2024 tourne avec un vol en cours.',
     navaidsExtractError: 'Extraction échouée : {msg}',
 
+    // Détection des terrains fournis par un paquet add-on
+    menuDetectAddons: 'Détecter les add-ons',
+    addonsTitle: 'Détecter les terrains add-on',
+    addonsIntro: 'Le simulateur ne dit pas d\'où vient un terrain : la détection lit les paquets sur le disque et rapproche leurs positions de la base MSFS 2024. Choisissez le dossier qui contient vos paquets.',
+    addonsRootLabel: 'Dossier des paquets',
+    addonsBrowse: 'Choisir…',
+    addonsRun: 'Analyser',
+    addonsScanning: 'Analyse des paquets…',
+    addonsLastScan: 'Dernière analyse : {n} terrains marqués, le {date}.',
+    addonsDone: '{n} terrains marqués — {rattaches} paquets rattachés sur {paquets}.',
+    addonsErrRoot: 'Dossier introuvable.',
+    addonsErrNoBase: 'Base MSFS 2024 absente : importez d\'abord les aéroports.',
+    addonsErr: 'L\'analyse a échoué.',
+
     // Import des données d'élévation (GLOBE all10g.zip)
     menuImportElevation: 'Données d\'élévation',
     elevConfirmTitle: 'Re-télécharger les données ?',
@@ -483,6 +497,20 @@ const TRANSLATIONS = {
     navaidsExtractDone: 'Extraction complete: {n} navaids saved.',
     navaidsExtractEmpty: 'No navaid extracted. Make sure MSFS 2024 is running with a flight loaded.',
     navaidsExtractError: 'Extraction failed: {msg}',
+
+    // Add-on airport detection
+    menuDetectAddons: 'Detect add-ons',
+    addonsTitle: 'Detect add-on airports',
+    addonsIntro: 'The simulator never says where an airport comes from: detection reads the packages on disk and matches their positions against the MSFS 2024 database. Pick the folder holding your packages.',
+    addonsRootLabel: 'Package folder',
+    addonsBrowse: 'Browse…',
+    addonsRun: 'Scan',
+    addonsScanning: 'Scanning packages…',
+    addonsLastScan: 'Last scan: {n} airports marked, on {date}.',
+    addonsDone: '{n} airports marked — {rattaches} of {paquets} packages matched.',
+    addonsErrRoot: 'Folder not found.',
+    addonsErrNoBase: 'MSFS 2024 database missing: import the airports first.',
+    addonsErr: 'The scan failed.',
 
     // Elevation data import (GLOBE all10g.zip)
     menuImportElevation: 'Elevation data',

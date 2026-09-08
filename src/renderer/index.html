@@ -28,6 +28,7 @@
           <button id="menu-import-airports" class="dropdown-item"><span data-i18n="menuImportAirports">Aéroports MSFS2024</span></button>
           <button id="menu-import-navaids" class="dropdown-item"><span data-i18n="menuImportNavaids">Navaids MSFS2024</span></button>
           <button id="menu-import-elevation" class="dropdown-item"><span data-i18n="menuImportElevation">Données d'élévation</span></button>
+          <button id="menu-detect-addons" class="dropdown-item"><span data-i18n="menuDetectAddons">Détecter les add-ons</span></button>
         </div>
       </div>
       <!-- Afficher / masquer le tableau des legs (panneau « Plan de vol ») -->
@@ -345,6 +346,22 @@
   </div>
 
   <!-- Modale : recherche d'un aérodrome ou d'un navaid -->
+  <!-- Modale : détection des terrains fournis par un paquet add-on -->
+  <div id="addons-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-package"></i> <span data-i18n="addonsTitle">Détecter les terrains add-on</span></h3>
+      <p class="modal-text" data-i18n="addonsIntro">Le simulateur ne dit pas d'où vient un terrain : la détection lit les paquets sur le disque et rapproche leurs positions de la base MSFS 2024. Choisissez le dossier qui contient vos paquets.</p>
+      <label class="field-label" for="addons-root" data-i18n="addonsRootLabel">Dossier des paquets</label>
+      <input id="addons-root" class="field-input" type="text" readonly>
+      <p id="addons-status" class="modal-status" hidden></p>
+      <div class="modal-actions">
+        <button id="btn-addons-close" class="btn"><span data-i18n="btnClose">Fermer</span></button>
+        <button id="btn-addons-browse" class="btn"><i class="ph-light ph-folder-open"></i> <span data-i18n="addonsBrowse">Choisir…</span></button>
+        <button id="btn-addons-run" class="btn btn-accent"><i class="ph-light ph-magnifying-glass"></i> <span data-i18n="addonsRun">Analyser</span></button>
+      </div>
+    </div>
+  </div>
+
   <div id="recherche-overlay" class="overlay" hidden>
     <div class="modal recherche-modal">
       <h3><i class="ph-light ph-magnifying-glass"></i> <span data-i18n="searchTitle">Rechercher un aérodrome ou un navaid</span></h3>
@@ -468,5 +485,6 @@
   <script src="js/features/flanquement.js"></script>
   <script src="js/features/compas.js"></script>
   <script src="js/features/export-gtn750.js"></script>
+  <script src="js/features/addons.js"></script>
 </body>
 </html>

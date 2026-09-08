@@ -21,6 +21,7 @@ const NAVAID_TYPES = new Set(['VOR', 'VOR-DME', 'VORTAC', 'TACAN', 'NDB', 'NDB-D
 
 let _airports = null;   // [{ident, code, name, lat, lon, type, runway}]
 let _navaids = null;    // [{id, ident, name, type, lat, lon, freqKhz, rangeNm}]
+let _addons = null;     // Set des codes fournis par un paquet add-on (addons.json)
 
 function dataDir() { return path.join(dossierBase(), 'data'); }
 
@@ -113,6 +114,20 @@ function chargerNavaids() {
   return _navaids;
 }
 
+// Codes des terrains fournis par un paquet add-on, écrits par addons-scan.js.
+// Absence de fichier = personne n'a lancé l'analyse : ensemble vide, aucun
+// marquage, et surtout aucune erreur — la carte doit marcher sans.
+function chargerAddons() {
+  if (_addons) return _addons;
+  const set = new Set();
+  try {
+    const obj = JSON.parse(fs.readFileSync(path.join(dataDir(), 'addons.json'), 'utf-8'));
+    for (const code of Object.keys((obj && obj.aeroports) || {})) set.add(code.toUpperCase());
+  } catch (_) {}
+  _addons = set;
+  return _addons;
+}
+
 // Appartenance d'une longitude à la plage [west, east] (gère l'antiméridien et
 // le défilement infini de Leaflet : west peut être > east).
 function lonDansPlage(lon, west, east) {
@@ -132,7 +147,11 @@ function aeroportsDansBbox(bbox) {
   if (!bbox) return { ok: false, reason: 'no-bbox' };
   const all = chargerAeroports();
   if (!all.length) return { ok: false, reason: 'no-data' };
-  return { ok: true, airports: all.filter((a) => dansBbox(a, bbox)) };
+  const vus = all.filter((a) => dansBbox(a, bbox));
+  const addons = chargerAddons();
+  if (!addons.size) return { ok: true, airports: vus };
+  // Copie seulement les terrains marqués : la liste du cache doit rester intacte.
+  return { ok: true, airports: vus.map((a) => (addons.has(String(a.code || a.ident).toUpperCase()) ? { ...a, addon: true } : a)) };
 }
 
 function navaidsDansBbox(bbox) {
@@ -284,6 +303,15 @@ function featureProche(lat, lon, rayonNm) {
 }
 
 // Invalide les caches (après un import) → rechargés à la prochaine requête.
-function reload() { _airports = null; _navaids = null; _index = null; }
+// _index en fait partie : il est bâti SUR ces caches, le laisser survivre à un
+// import ferait chercher dans l'ancienne base.
+function reload() { _airports = null; _navaids = null; _index = null; _addons = null; }
 
-module.exports = { aeroportsDansBbox, navaidsDansBbox, aeroportParCode, rechercherLieux, featureProche, reload };
+// Après un scan d'add-ons : seul addons.json a changé, inutile de relire les
+// dizaines de Mo de la base.
+function rechargerAddons() { _addons = null; }
+
+module.exports = {
+  aeroportsDansBbox, navaidsDansBbox, aeroportParCode, rechercherLieux, featureProche,
+  chargerAeroports, rechargerAddons, reload,
+};

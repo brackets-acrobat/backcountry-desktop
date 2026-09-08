@@ -24,6 +24,7 @@ const { chargerConfig, enregistrerCle, dossierBase } = require('./config');
 const { runExtraction: runMsfsExtraction } = require('./extract-airports-msfs');
 const { runExtraction: runNavaidsExtraction } = require('./extract-navaids-msfs');
 const airportsData = require('./airports-data');
+const addonsScan = require('./addons-scan');
 const { SimConnectClient } = require('./simconnect');
 const { createFsm } = require('./fsm');
 const { envoyerVol, recupererLieux, messageServeur } = require('./api-client');
@@ -662,6 +663,17 @@ ipcMain.handle('rechercher-lieux', async (_e, requete) => airportsData.recherche
 
 // Feature (aéroport/navaid) le plus proche d'un point, dans un rayon (NM).
 ipcMain.handle('feature-proche', async (_e, { lat, lon, rayonNm } = {}) => airportsData.featureProche(lat, lon, rayonNm));
+
+// --- Détection des terrains add-on (lecture des paquets sur le disque) ---
+// Le simulateur ne dit jamais d'où vient un terrain : l'information n'existe
+// que dans les paquets posés sur le disque, cf. addons-scan.js.
+ipcMain.handle('addons-etat', async () => addonsScan.etat());
+ipcMain.handle('addons-choisir-dossier', async () => addonsScan.choisirDossier(mainWindow));
+ipcMain.handle('addons-scanner', async (_e, { racine } = {}) => {
+  const res = addonsScan.scanner({ racine, aeroports: airportsData.chargerAeroports() });
+  if (res.ok) airportsData.rechargerAddons();   // le marquage prend effet au prochain rafraîchissement
+  return res;
+});
 
 // Sauvegarde d'un plan de vol (.bcpfc) : dialogue natif « Enregistrer sous »,
 // puis écriture du plan en JSON. `nomSuggere` = nom de fichier proposé.

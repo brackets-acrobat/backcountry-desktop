@@ -256,10 +256,21 @@ function surfaceMarkerColors(surface) {
   return { fill: '#fff', stroke: '#000', line: '#000' };
 }
 
+// Anneau des terrains fournis par un paquet add-on (drapeau posé par main à
+// partir de data/addons.json, cf. addons-scan.js). Il se pose autour du symbole
+// sans le toucher : jaune bordé de noir, pour tenir aussi bien sur un fond
+// satellite sombre que sur l'OpenTopoMap clair.
+function anneauAddonSvg(airport, r) {
+  if (!airport.addon) return '';
+  return `<circle cx="0" cy="0" r="${r + 3}" fill="none" stroke="#000" stroke-width="3.4" stroke-opacity="0.55"/>`
+    + `<circle cx="0" cy="0" r="${r + 3}" fill="none" stroke="#ffff00" stroke-width="2"/>`;
+}
+
 function makeAirportIcon(airport) {
   if (airport.type === 'heliport') {
     const rh = TAILLES_AEROPORT.heliport, sizeH = rh * 2 + 12, fs = Math.round(rh * 1.7);
     const svgH = `<svg viewBox="-${sizeH / 2} -${sizeH / 2} ${sizeH} ${sizeH}" width="${sizeH}" height="${sizeH}" style="overflow:visible;">`
+      + anneauAddonSvg(airport, rh)
       + `<circle cx="0" cy="0" r="${rh}" fill="#fff" stroke="#000" stroke-width="1.6"/>`
       + `<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif" font-weight="700" font-size="${fs}" fill="#000">H</text></svg>`;
     return L.divIcon({ className: 'airport-marker', html: svgH, iconSize: [sizeH, sizeH], iconAnchor: [sizeH / 2, sizeH / 2] });
@@ -268,6 +279,7 @@ function makeAirportIcon(airport) {
     const rs = TAILLES_AEROPORT.seaplane_base, sizeS = rs * 2 + 12, extS = rs + 4;
     const headingS = airport.runway ? airport.runway.headingDegT : 0, hasRwyS = !!airport.runway;
     const svgS = `<svg viewBox="-${sizeS / 2} -${sizeS / 2} ${sizeS} ${sizeS}" width="${sizeS}" height="${sizeS}" style="overflow:visible;">`
+      + anneauAddonSvg(airport, rs)
       + (hasRwyS ? `<line x1="-${extS}" y1="0" x2="${extS}" y2="0" stroke="#0d4d6e" stroke-width="2.2" stroke-linecap="round" transform="rotate(${headingS - 90})"/>` : '')
       + `<circle cx="0" cy="0" r="${rs}" fill="#2970ff" stroke="#0a2a66" stroke-width="1.6"/></svg>`;
     return L.divIcon({ className: 'airport-marker', html: svgS, iconSize: [sizeS, sizeS], iconAnchor: [sizeS / 2, sizeS / 2] });
@@ -277,6 +289,7 @@ function makeAirportIcon(airport) {
   const lineExtent = r + 4, rotation = heading - 90;
   const sc = surfaceMarkerColors(airport.runway && airport.runway.surface);
   const svg = `<svg viewBox="-${size / 2} -${size / 2} ${size} ${size}" width="${size}" height="${size}" style="overflow:visible;">`
+    + anneauAddonSvg(airport, r)
     + (hasRunway ? `<line x1="-${lineExtent}" y1="0" x2="${lineExtent}" y2="0" stroke="${sc.line}" stroke-width="2.2" stroke-linecap="round" transform="rotate(${rotation})"/>` : '')
     + `<circle cx="0" cy="0" r="${r}" fill="${sc.fill}" stroke="${sc.stroke}" stroke-width="1.6"/></svg>`;
   return L.divIcon({ className: 'airport-marker', html: svg, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });

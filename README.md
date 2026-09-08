@@ -49,6 +49,7 @@ npm start                              # nécessite MSFS 2024 lancé pour SimCon
 | `src/main/capture.js` | Capture d'écran staging | 🚧 stub + contrat |
 | `src/main/airports-data.js` | Bases MSFS extraites : bbox, code, recherche par nom | ✅ |
 | `src/main/export-gtn750.js` | Dépose le plan de vol (`fpl.pln`) dans le GTN750 de PMS50 | ✅ |
+| `src/main/addons-scan.js` | Détection des terrains add-on par lecture des paquets sur le disque | ✅ |
 | `src/preload.js` | Pont sécurisé (contextIsolation) | ✅ |
 | `src/renderer/renderer.js` | Socle de l'UI : carte, route, legs, profil, imports | ✅ |
 | `src/renderer/js/features/` | Fonctionnalités de navigation (voir ci-dessous) | ✅ |
@@ -68,6 +69,7 @@ partagée que le socle.
 | `flanquement.js` | Flanquement VOR (radial magnétique vers un point de la route) |
 | `compas.js` | Rose des vents magnétique (portage de Little Navmap) |
 | `export-gtn750.js` | Construction du PLN pour le GTN750 de PMS50 |
+| `addons.js` | Détection des terrains fournis par un paquet add-on (anneau jaune sur la carte) |
 
 ## Briques SimConnect (validées)
 
