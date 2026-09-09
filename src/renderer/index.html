@@ -153,8 +153,15 @@
         <label class="legs-nav-lbl" for="nav-vp" data-i18n="navVp">Vp</label>
         <input id="nav-vp" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"
                autocomplete="off" spellcheck="false" placeholder="—"
-               data-i18n-title="navVpTitle" title="Vitesse propre">
+               data-i18n-title="navVpTitle" title="Vitesse propre (kt)">
         <span class="legs-nav-u">kt</span>
+        <!-- Même grandeur, seconde porte d'entrée : les manuels de vol américains
+             donnent la vitesse propre en mph. Les deux cases se suivent. -->
+        <span class="legs-nav-sep">=</span>
+        <input id="nav-vp-mph" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"
+               autocomplete="off" spellcheck="false" placeholder="—"
+               data-i18n-title="navVpMphTitle" title="Vitesse propre (mph)">
+        <span class="legs-nav-u">mph</span>
         <span class="legs-nav-sep">|</span>
         <label class="legs-nav-lbl" for="nav-vent-dir" data-i18n="navVent">Vent</label>
         <input id="nav-vent-dir" class="legs-nav-in" type="text" inputmode="numeric" maxlength="3"

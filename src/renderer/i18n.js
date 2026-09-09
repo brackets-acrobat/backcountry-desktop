@@ -236,6 +236,7 @@ const TRANSLATIONS = {
     // Bandeau de navigation du panneau « Plan de vol »
     navVp: 'Vp',
     navVpTitle: 'Vitesse propre (kt)',
+    navVpMphTitle: 'Vitesse propre (mph)',
     navVent: 'Vent',
     navVentDirTitle: 'Direction d\'où vient le vent (degrés vrais)',
     navVentKtTitle: 'Force du vent (kt)',
@@ -247,6 +248,7 @@ const TRANSLATIONS = {
     vertProfileTitle: 'Profil vertical',
     vertProfileEmpty: 'Créez un plan de vol (départ + arrivée) pour afficher le profil vertical.',
     vertProfileNoData: 'Relief indisponible. Importez d\'abord les données d\'élévation (menu Importer → Données d\'élévation).',
+    vertProfileError: 'Le calcul du profil a échoué : {err}',
     vertProfileTerrain: 'Relief',
     vertProfilePlanned: 'Alt. prévue',
     vertProfileGround: 'Sol',
@@ -561,6 +563,7 @@ const TRANSLATIONS = {
     // Navigation bar of the "Flight plan" panel
     navVp: 'TAS',
     navVpTitle: 'True airspeed (kt)',
+    navVpMphTitle: 'True airspeed (mph)',
     navVent: 'Wind',
     navVentDirTitle: 'Direction the wind comes from (true degrees)',
     navVentKtTitle: 'Wind speed (kt)',
@@ -572,6 +575,7 @@ const TRANSLATIONS = {
     vertProfileTitle: 'Vertical profile',
     vertProfileEmpty: 'Create a flight plan (departure + arrival) to display the vertical profile.',
     vertProfileNoData: 'Terrain unavailable. Import the elevation data first (Import menu → Elevation data).',
+    vertProfileError: 'Profile computation failed: {err}',
     vertProfileTerrain: 'Terrain',
     vertProfilePlanned: 'Planned alt.',
     vertProfileGround: 'Ground',

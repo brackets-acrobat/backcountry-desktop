@@ -26,6 +26,7 @@ let _planVentDir = null;   // direction D'OÙ VIENT le vent (°, VRAIS) — null
 let _planVentKt = null;    // force du vent (kt) — null = non renseignée
 
 const VP_MAX = 500;        // garde-fous de saisie
+const VP_MPH_MAX = Math.round(VP_MAX * MPH_PAR_KT);   // même plafond, dans l'autre unité
 const VENT_KT_MAX = 200;
 
 // Triangle des vitesses d'un leg, tout en VRAI. Vent absent ou nul → air calme,
@@ -94,11 +95,38 @@ function relireParamsNav() {
   rafraichirTableauLegs();   // calcul local et instantané : pas de redessin de carte
 }
 
-['nav-vp', 'nav-vent-dir', 'nav-vent-kt'].forEach((id) => {
-  $(id).addEventListener('input', relireParamsNav);
+// --- Vp : deux cases, une seule grandeur -------------------------------------
+//
+// Le NŒUD reste la valeur de référence : tout le triangle des vitesses, la
+// vitesse sol et les durées sont en nœuds, et c'est lui qui part dans le
+// .bcpfc. Le mile par heure n'est qu'une seconde porte d'entrée — celle des
+// manuels de vol américains, où la Vp se lit en mph.
+//
+// On ne réécrit JAMAIS la case en cours de frappe, seulement l'autre. Le nœud
+// étant la plus grosse unité, l'aller-retour mph → kt → mph n'est pas stable :
+// 88 mph donne 76 kt, qui redonne 87 mph. Réécrire la case frappée ferait donc
+// reculer d'une unité, sous les doigts du pilote, une valeur sur huit. (Dans
+// l'autre sens, kt → mph → kt retombe toujours juste — le mile par heure est
+// assez fin pour cela — mais la règle vaut pour les deux cases.)
+function majVpMph() {   // kt → mph
+  const kt = lireEntierChamp($('nav-vp'), VP_MAX);
+  $('nav-vp-mph').value = kt == null ? '' : String(Math.round(kt * MPH_PAR_KT));
+}
+function majVpKt() {    // mph → kt
+  const mph = lireEntierChamp($('nav-vp-mph'), VP_MPH_MAX);
+  $('nav-vp').value = mph == null ? '' : String(Math.round(mph / MPH_PAR_KT));
+}
+
+$('nav-vp').addEventListener('input', () => { majVpMph(); relireParamsNav(); });
+$('nav-vp-mph').addEventListener('input', () => { majVpKt(); relireParamsNav(); });
+
+['nav-vp', 'nav-vp-mph', 'nav-vent-dir', 'nav-vent-kt'].forEach((id) => {
   // Les champs vivent dans le panneau : Entrée n'a rien à valider, mais elle ne
   // doit pas remonter aux raccourcis globaux non plus.
   $(id).addEventListener('keydown', (e) => e.stopPropagation());
+});
+['nav-vent-dir', 'nav-vent-kt'].forEach((id) => {
+  $(id).addEventListener('input', relireParamsNav);
 });
 
 // Applique des paramètres venus d'un plan chargé (valeurs absentes → champs
@@ -106,6 +134,7 @@ function relireParamsNav() {
 // météo d'un autre jour par-dessus celle qu'on est en train de voler.
 function appliquerParamsNav({ vp, ventDir, ventKt } = {}) {
   $('nav-vp').value = Number.isFinite(vp) ? String(vp) : '';
+  majVpMph();   // la case mph suit celle des nœuds, plan chargé compris
   if (!_ventSimActif) {
     $('nav-vent-dir').value = Number.isFinite(ventDir) ? String(ventDir) : '';
     $('nav-vent-kt').value = Number.isFinite(ventKt) ? String(ventKt) : '';

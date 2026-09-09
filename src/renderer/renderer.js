@@ -799,18 +799,27 @@ let _routeDep = null, _routeArr = null;
 // départ) sur cette variable dédiée. Suit donc les insertions/déplacements de
 // points comme le nom. null = non renseignée.
 let _legAltDep = null;
-const DEFAULT_LEG_ALT = 2500;   // altitude par défaut d'un leg (ft) tant que non renseignée
+// Repli quand le relief est inconnu (jeu GLOBE non importé, ou profil pas encore
+// calculé). Sinon, un leg sans altitude saisie prend son plancher de sécurité —
+// cf. getLegAlt.
+const DEFAULT_LEG_ALT = 2500;
 // Altitude RÉELLEMENT saisie pour ce leg, ou null. L'inversion du plan s'appuie
 // dessus : reporter la valeur par défaut ferait passer pour un choix du pilote
-// ce qui n'est qu'un repli d'affichage.
+// ce qui n'est qu'un repli d'affichage. C'est elle aussi qu'on envoie au calcul
+// du profil : lui substituer un repli priverait le main du moyen de distinguer
+// « le pilote veut 3600 ft » de « le pilote n'a rien dit ».
 function getLegAltBrut(i) {
   if (i === 0) return Number.isFinite(_legAltDep) ? _legAltDep : null;
   const wp = routeWaypoints[i - 1];
   return wp && Number.isFinite(wp.alt) ? wp.alt : null;
 }
+// Altitude affichée et exportée pour ce leg : celle du pilote s'il en a saisi
+// une, sinon le plancher de sécurité (point le plus haut du leg + 1500 ft).
 function getLegAlt(i) {
   const saisie = getLegAltBrut(i);
-  return saisie != null ? saisie : DEFAULT_LEG_ALT;
+  if (saisie != null) return saisie;
+  const plancher = altitudeSecuriteLeg(i);
+  return plancher != null ? plancher : DEFAULT_LEG_ALT;
 }
 function setLegAlt(i, v) {
   const val = Number.isFinite(v) ? v : null;
@@ -1749,6 +1758,7 @@ function viderScan() {
   if (typeof libererCasesVent === 'function') libererCasesVent();
   if (map && planeMarker) { map.removeLayer(planeMarker); planeMarker = null; }
   if (map && planeTrack) { map.removeLayer(planeTrack); planeTrack = null; }
+  vpEffacerAvion();   // idem sur le profil : plus de simulateur, plus de position à y montrer
   $('wind-indicator').hidden = true;
   _ventLastUpdate = 0;
   suiviPause = false;
@@ -1770,6 +1780,7 @@ function majScan(f) {
   majCarte(f);
   majVent(f);
   majLegActifDepuisAvion(f);   // séquencement du leg actif selon la position avion
+  majAvionProfil(f);           // position de l'avion sur le profil vertical (après le séquencement)
   majCompas();                 // rose des vents : suit l'avion, les caps et le vent
   majVentPlanDepuisSim(f);     // vent du plan : rempli par le simulateur (1×/30 s)
 }
@@ -2659,46 +2670,78 @@ function vpWaypoints() {
 
 // Altitudes au format du handler : legAlt[i] = altitude du leg wp[i-1] → wp[i].
 // (backcountry : getLegAlt est 0-indexé par leg → décalage de 1.)
+// On envoie les altitudes SAISIES, null compris : c'est main qui comble un leg
+// sans altitude par son plancher de sécurité, seul endroit où le relief est lu.
 function vpLegAltitudes(nWps) {
   const arr = [null];
-  for (let i = 1; i < nWps; i++) arr.push(getLegAlt(i - 1));
+  for (let i = 1; i < nWps; i++) arr.push(getLegAltBrut(i - 1));
   return arr;
 }
 
+// Plancher de sécurité du leg `i` (0-indexé), tel que le dernier calcul l'a
+// établi — ou null tant qu'il n'y en a pas eu. Sert de valeur par défaut à
+// l'altitude du leg dans le tableau de navigation et à l'export.
+function altitudeSecuriteLeg(i) {
+  const legs = _vpLast && _vpLast.legs;
+  if (!Array.isArray(legs) || i < 0 || i >= legs.length) return null;
+  const lg = legs[i];
+  return lg && Number.isFinite(lg.safeAltFt) ? lg.safeAltFt : null;
+}
+
+// Le profil est calculé MÊME panneau fermé : c'est lui qui fournit les planchers
+// de sécurité, dont le tableau de navigation a besoin en permanence. Seul
+// l'affichage dépend de l'ouverture du panneau.
 async function mettreAJourProfilVertical() {
   const host = $('vertical-profile-graph');
-  if (!host || !vpPanelVisible()) return;
+  if (!host) return;
+  const visible = vpPanelVisible();
+  const afficher = (html) => { if (visible) { host.innerHTML = html; _vpMajHauteur(); } };
 
   const wps = vpWaypoints();
   if (wps.length < 2) {
     _vpLast = null; _vpSig = null;
-    host.innerHTML = `<div class="vp-empty">${escapeHtml(t('vertProfileEmpty'))}</div>`;
-    _vpMajHauteur();
+    afficher(`<div class="vp-empty">${escapeHtml(t('vertProfileEmpty'))}</div>`);
+    rafraichirTableauLegs();
     return;
   }
   const legAlt = vpLegAltitudes(wps.length);
 
   // Anti-recalcul : re-rend depuis le cache tant que plan + altitudes inchangés.
   const sig = JSON.stringify({ w: wps.map((p) => [p.lat, p.lon, p.name]), a: legAlt });
-  if (sig === _vpSig && _vpLast) { _renderProfilInto(host, _vpLast); return; }
+  if (sig === _vpSig && _vpLast) { if (visible) _renderProfilInto(host, _vpLast); return; }
 
+  // Une erreur du process principal doit S'AFFICHER. Un `catch` muet laisserait
+  // le panneau vide sans rien dire — et, depuis que le tableau tire ses
+  // planchers d'ici, ferait aussi retomber la colonne Alt sur son repli sans
+  // qu'on sache pourquoi.
   let res;
-  try { res = await window.bc.profilVertical({ waypoints: wps, legAltitudes: legAlt }); }
-  catch (_) { return; }
+  try {
+    res = await window.bc.profilVertical({ waypoints: wps, legAltitudes: legAlt });
+  } catch (err) {
+    _vpLast = null; _vpSig = null;
+    afficher(`<div class="vp-empty">${escapeHtml(
+      t('vertProfileError').replace('{err}', (err && err.message) || String(err)))}</div>`);
+    rafraichirTableauLegs();
+    return;
+  }
 
   if (!res || !res.ok || !Array.isArray(res.dist) || res.dist.length < 2) {
     _vpLast = null; _vpSig = null;
-    host.innerHTML = `<div class="vp-empty">${escapeHtml(t('vertProfileNoData'))}</div>`;
-    _vpMajHauteur();
+    afficher(`<div class="vp-empty">${escapeHtml(t('vertProfileNoData'))}</div>`);
+    rafraichirTableauLegs();
     return;
   }
   _vpLast = res; _vpSig = sig;
-  _renderProfilInto(host, res);
+  if (visible) _renderProfilInto(host, res);
+  // Les legs sans altitude saisie viennent de recevoir leur plancher : le
+  // tableau de navigation les affichait encore avec le repli.
+  rafraichirTableauLegs();
 }
 
 function _renderProfilInto(host, res) {
   host.innerHTML = renderProfileSummary(res) + renderProfileSVG(res);
   _attachProfileHover(host);
+  majAvionProfil(derniereTrame);   // le SVG est neuf : l'avion doit y revenir
   _vpMajHauteur();
 }
 
@@ -2741,7 +2784,7 @@ function renderProfileSVG(res) {
   const X = (d) => m.l + (d / totalNM) * iw;
   const Y = (ft) => m.t + ih - (Math.max(0, ft) / yMax) * ih;
 
-  _vpRender = { W, H, m, iw, ih, yMax, totalNM, dist, terr, legs: res.legs };
+  _vpRender = { W, H, m, iw, ih, yMax, totalNM, dist, terr, legs: res.legs, wps: res.waypoints };
 
   let area = `M ${X(dist[0]).toFixed(1)} ${Y(0).toFixed(1)}`;
   for (let i = 0; i < dist.length; i++) area += ` L ${X(dist[i]).toFixed(1)} ${Y(terr[i]).toFixed(1)}`;
@@ -2877,6 +2920,115 @@ function _attachProfileHover(host) {
   }
   svg.addEventListener('mousemove', onMove);
   svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+// ============================================================
+// Position de l'avion sur le profil.
+//
+// L'abscisse ne peut pas se déduire de la seule position : une route qui se
+// recoupe passerait deux fois au même endroit. C'est le LEG ACTIF qui tranche —
+// celui que le séquencement de Little Navmap tient déjà à jour — et sur ce leg,
+// la distance parcourue est le pied de la perpendiculaire (distanceFrom1 de
+// distanceVersLeg). Un avion à côté de sa route est donc placé au travers de là
+// où il en est, ce qui est bien ce qu'on veut lire sur un profil.
+//
+// Le repère est ajouté au SVG déjà rendu plutôt qu'intégré au tracé : le profil
+// n'est re-rendu que quand le plan change, et il serait absurde de le
+// reconstruire deux fois par seconde.
+// ============================================================
+const VP_SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Distance cumulée (NM) de l'avion le long du plan, ou null s'il n'est pas
+// plaçable. Les distances viennent de CELLES QUE LE PROFIL A REÇUES : les
+// recalculer ici ferait dériver le repère par rapport à l'axe qu'il désigne.
+function vpDistanceAvion(f) {
+  const wps = _vpRender && _vpRender.wps;
+  if (!Array.isArray(wps) || wps.length < 2) return null;
+  if (!f || !Number.isFinite(f.lat) || !Number.isFinite(f.lon)) return null;
+  if (!_routeDep || !_routeArr) return null;
+
+  const cur = legActifClamp();
+  if (cur < 0 || cur + 1 >= wps.length) return null;
+  const pts = [_routeDep, ...routeWaypoints, _routeArr];
+  const A = pts[cur], B = pts[cur + 1];
+  if (!A || !B) return null;
+
+  const d0 = wps[cur].d, d1 = wps[cur + 1].d;
+  if (!Number.isFinite(d0) || !Number.isFinite(d1)) return null;
+  const longueur = d1 - d0;
+
+  const res = distanceVersLeg(f.lat, f.lon, A.lat, A.lon, B.lat, B.lon);
+  if (res.status === 'INVALID') return null;
+  // distanceFrom1 est un arc-cosinus, donc positif même en amont de A : c'est le
+  // STATUT qui dit de quel côté on se trouve, pas le signe.
+  let along;
+  if (res.status === 'BEFORE_START') along = 0;
+  else if (res.status === 'AFTER_END') along = longueur;
+  else along = Math.max(0, Math.min(longueur, res.distanceFrom1));
+  return d0 + along;
+}
+
+function vpEffacerAvion() {
+  const host = $('vertical-profile-graph');
+  const g = host && host.querySelector('#vp-avion');
+  if (g && g.parentNode) g.parentNode.removeChild(g);
+}
+
+// Place (ou déplace) l'avion sur le profil. Appelé à chaque trame du simulateur
+// et après chaque re-rendu du SVG.
+function majAvionProfil(f) {
+  const host = $('vertical-profile-graph');
+  const svg = host && host.querySelector('svg');
+  if (!svg || !_vpRender || !vpPanelVisible()) return;
+
+  const d = vpDistanceAvion(f);
+  if (d == null || !Number.isFinite(f.amslFt)) { vpEffacerAvion(); return; }
+
+  const { m, iw, ih, yMax, totalNM } = _vpRender;
+  const x = m.l + (Math.max(0, Math.min(totalNM, d)) / (totalNM || 1)) * iw;
+  // Au-dessus de l'échelle (l'avion monte plus haut que tout ce que le graphe
+  // borne), le repère est retenu sous le bord haut plutôt que rogné : mieux vaut
+  // un avion collé au plafond qu'un avion disparu.
+  const yBrut = m.t + ih - (Math.max(0, f.amslFt) / yMax) * ih;
+  const y = Math.max(m.t + 5, Math.min(m.t + ih, yBrut));
+  const sol = _terrainAtDist(d);
+  const ySol = m.t + ih - (Math.max(0, sol == null ? 0 : sol) / yMax) * ih;
+
+  let g = svg.querySelector('#vp-avion');
+  if (!g) {
+    g = document.createElementNS(VP_SVG_NS, 'g');
+    g.setAttribute('id', 'vp-avion');
+    g.setAttribute('pointer-events', 'none');   // ne vole pas le survol du profil
+
+    // Trait jusqu'au sol : c'est lui qui donne à voir la hauteur-sol, la seule
+    // grandeur qui compte quand le relief monte à la rencontre de l'avion.
+    const aplomb = document.createElementNS(VP_SVG_NS, 'line');
+    aplomb.setAttribute('stroke', '#ff00ff');
+    aplomb.setAttribute('stroke-width', '1');
+    aplomb.setAttribute('stroke-dasharray', '2,3');
+    aplomb.setAttribute('stroke-opacity', '0.7');
+
+    // Silhouette de profil, nez à droite (le sens de parcours du graphe), en
+    // magenta bordé de blanc comme la trace sur la carte : lisible aussi bien
+    // sur l'aire du relief que sur le fond sombre au-dessus.
+    const avion = document.createElementNS(VP_SVG_NS, 'path');
+    avion.setAttribute('d', 'M 7 0 L -5 -5 L -2 0 L -5 5 Z');
+    avion.setAttribute('fill', '#ff00ff');
+    avion.setAttribute('stroke', '#ffffff');
+    avion.setAttribute('stroke-width', '1.2');
+    avion.setAttribute('stroke-linejoin', 'round');
+
+    g.appendChild(aplomb);
+    g.appendChild(avion);
+    svg.appendChild(g);
+  }
+
+  const [aplomb, avion] = g.children;
+  aplomb.setAttribute('x1', x.toFixed(1));
+  aplomb.setAttribute('x2', x.toFixed(1));
+  aplomb.setAttribute('y1', y.toFixed(1));
+  aplomb.setAttribute('y2', Math.max(y, ySol).toFixed(1));
+  avion.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)})`);
 }
 
 // Re-rendu (depuis le cache) au redimensionnement de la fenêtre.

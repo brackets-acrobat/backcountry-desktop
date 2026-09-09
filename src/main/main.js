@@ -581,7 +581,6 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
   if (wps.length < 2) return { ok: false, dist: [], terrain: [], planned: [], waypoints: [] };
 
   const M2FT = 3.28084;
-  const ALT_FALLBACK = 2500;
 
   const legDist = [];
   let totalNM = 0;
@@ -597,7 +596,11 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
   if (totalKm / stepKm > MAX_SAMPLES) stepKm = totalKm / MAX_SAMPLES;
 
   // Altitude minimale de sécurité (par leg) : relief max sous l'axe + marge selon
-  // la rugosité (plaine +1000 ft, montagne +1500 ft si amplitude > 1500 ft).
+  // la rugosité (plaine +1000 ft, montagne +1500 ft si amplitude > 1500 ft), le
+  // tout arrondi aux 100 ft supérieurs pour rester un nombre affichable sur un
+  // altimètre. Clear Sky VFR a abandonné cette distinction au profit d'un 1500 ft
+  // unique ; on la garde ici — au-dessus d'une plaine, 1000 ft suffisent, et
+  // 500 ft de plus se paient en carburant sur un vol de brousse.
   const MARGIN_PLAIN_FT = 1000, MARGIN_MOUNTAIN_FT = 1500, MOUNTAIN_AMPL_FT = 1500;
 
   const dist = [], terrain = [], planned = [], waypoints = [], legs = [];
@@ -607,9 +610,14 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
   for (let i = 1; i < wps.length; i++) {
     const a = wps[i - 1], b = wps[i];
     const legNM = legDist[i];
-    const altFt = (legAlt[i] != null ? legAlt[i] : ALT_FALLBACK);
     const nSeg = Math.max(1, Math.round((legNM * 1.852) / stepKm));
     let legMax = -Infinity, legMin = Infinity;
+
+    // Le relief est échantillonné AVANT que l'altitude prévue soit fixée : quand
+    // le pilote n'en a pas saisi, c'est le plancher de sécurité du leg qui en
+    // tient lieu, et ce plancher n'est connu qu'une fois le point le plus haut
+    // trouvé. D'où la mise de côté des échantillons le temps du balayage.
+    const dLeg = [], tLeg = [];
     for (let s = (i === 1 ? 0 : 1); s <= nSeg; s++) {
       const f = s / nSeg;
       const lat = a.lat + (b.lat - a.lat) * f;
@@ -618,16 +626,23 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
       if (eRaw != null) gotData = true;
       const terrFt = (eRaw == null ? 0 : eRaw) * M2FT;
       const d = cumNM + legNM * f;
-      dist.push(d); terrain.push(terrFt); planned.push(altFt);
+      dLeg.push(d); tLeg.push(terrFt);
       if (terrFt > legMax) legMax = terrFt;
       if (terrFt < legMin) legMin = terrFt;
       if (terrFt > summitFt) { summitFt = terrFt; summitD = d; }
     }
+
     const terrMaxFt = (legMax === -Infinity ? 0 : legMax);
     const amplitudeFt = (legMax === -Infinity ? 0 : legMax - legMin);
     const mountain = amplitudeFt > MOUNTAIN_AMPL_FT;
     const marginFt = mountain ? MARGIN_MOUNTAIN_FT : MARGIN_PLAIN_FT;
     const safeAltFt = Math.ceil((terrMaxFt + marginFt) / 100) * 100;
+    const altFt = (legAlt[i] != null ? legAlt[i] : safeAltFt);
+
+    for (let k = 0; k < dLeg.length; k++) {
+      dist.push(dLeg[k]); terrain.push(tLeg[k]); planned.push(altFt);
+    }
+
     legs.push({
       i, dStart: cumNM, dEnd: cumNM + legNM,
       name0: (a.name || ''), name1: (b.name || ''),
