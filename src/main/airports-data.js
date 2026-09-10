@@ -143,6 +143,26 @@ function dansBbox(item, bbox) {
   return lonDansPlage(item.lon, bbox.west, bbox.east);
 }
 
+// Un TERRAIN ne se réduit pas à son point de référence : ses pistes et ses
+// places s'en éloignent, parfois de plusieurs kilomètres. Le tester comme un
+// point revient à faire disparaître toute une plate-forme dès que sa référence
+// sort du cadre — ce qui arrive au premier panoramique dès le zoom 14.
+//
+// On élargit donc l'emprise du rayon propre au terrain avant de l'y chercher.
+// Mesuré dans Cap CAVVA, la distance d'une référence à l'extrémité de piste la
+// plus lointaine vaut 521 m en médiane, 4 km au 99,9e centile et 10 km au
+// 99,99e — d'où un rayon calculé par terrain plutôt qu'une marge forfaitaire,
+// qui trahirait aux deux bouts : trop courte pour les grandes plates-formes,
+// trop large partout ailleurs.
+function dansBboxElargi(item, bbox, margeM) {
+  if (!(margeM > 0)) return dansBbox(item, bbox);
+  const dLat = margeM / 111320;
+  const cosL = Math.cos(item.lat * Math.PI / 180);
+  const dLon = margeM / (111320 * (Math.abs(cosL) > 1e-6 ? Math.abs(cosL) : 1e-6));
+  if (item.lat < bbox.south - dLat || item.lat > bbox.north + dLat) return false;
+  return lonDansPlage(item.lon, bbox.west - dLon, bbox.east + dLon);
+}
+
 function aeroportsDansBbox(bbox) {
   if (!bbox) return { ok: false, reason: 'no-bbox' };
   const all = chargerAeroports();
@@ -302,10 +322,295 @@ function featureProche(lat, lon, rayonNm) {
   return best ? { ok: true, found: true, feature: best } : { ok: true, found: false };
 }
 
+// ------------------------------------------------------------
+// Détails d'un terrain : toutes ses pistes, avec leurs DEUX seuils
+// ------------------------------------------------------------
+//
+// Repris de Cap CAVVA. Le cache d'aéroports ne retient d'une piste que le cap,
+// la longueur et la surface — tout ce que le marqueur en montre. Le tour de
+// piste, lui, se construit sur les COORDONNÉES DES DEUX SEUILS : le sens
+// d'atterrissage et l'axe de piste en découlent. La donnée est dans le fichier,
+// mais la garder en mémoire pour tous les terrains qui en ont doublerait le
+// cache — payer le monde entier à chaque lancement pour un circuit tracé sur un
+// terrain à la fois.
+//
+// On relit donc le fichier à la demande, EN BINAIRE : recherche d'octets de
+// `"ident":"LFMD"`, puis décodage et analyse de CETTE ligne seule. Mesuré dans
+// Cap CAVVA sur une base de 118 Mo : ~55 ms par appel, presque entièrement de
+// la lecture. C'est l'ouverture d'une modale, pas une boucle de
+// rafraîchissement : la relecture ne coûte rien de perceptible.
+const OCTET_LF = 10;
+
+// Ligne JSONL dont le champ `ident` vaut exactement `id`, ou null.
+function ligneTerrain(buf, id) {
+  // JSON.stringify fournit la forme ÉCHAPPÉE, guillemets compris : une aiguille
+  // exacte quel que soit le contenu de l'ident. Le guillemet ouvrant écarte
+  // `le_ident` et `he_ident`, dont l'octet précédent est un souligné.
+  const aiguille = Buffer.from('"ident":' + JSON.stringify(id), 'utf-8');
+  let i = buf.indexOf(aiguille);
+  while (i >= 0) {
+    let debut = buf.lastIndexOf(OCTET_LF, i);
+    debut = debut < 0 ? 0 : debut + 1;
+    let fin = buf.indexOf(OCTET_LF, i);
+    if (fin < 0) fin = buf.length;
+    let obj = null;
+    try { obj = JSON.parse(buf.toString('utf-8', debut, fin)); } catch (_) { obj = null; }
+    // L'aiguille peut tomber dans un autre champ de la ligne (le nom d'un
+    // terrain, par exemple) : on ne retient que l'ident du terrain lui-même.
+    if (obj && obj.ident === id) return obj;
+    i = buf.indexOf(aiguille, fin);
+  }
+  return null;
+}
+
+// Pistes exploitables pour un tour de piste : ouvertes, et géolocalisées aux
+// DEUX seuils. Une piste à un seul seuil connu ne donne pas d'axe.
+function pistesGeolocalisees(runways) {
+  const out = [];
+  for (const r of (Array.isArray(runways) ? runways : [])) {
+    if (r.closed) continue;
+    if (!Number.isFinite(r.le_latitude_deg) || !Number.isFinite(r.le_longitude_deg)) continue;
+    if (!Number.isFinite(r.he_latitude_deg) || !Number.isFinite(r.he_longitude_deg)) continue;
+    out.push({
+      le: r.le_ident || '?',
+      he: r.he_ident || '?',
+      leLat: r.le_latitude_deg, leLon: r.le_longitude_deg,
+      heLat: r.he_latitude_deg, heLon: r.he_longitude_deg,
+      longueurFt: Number.isFinite(r.length_ft) ? r.length_ft : null,
+      // Largeur : le tracé à l'échelle en a besoin pour poser les deux bords
+      // du rectangle. Le tour de piste, lui, l'ignore.
+      largeurFt: Number.isFinite(r.width_ft) ? r.width_ft : null,
+      surface: r.surface || '',
+    });
+  }
+  return out;
+}
+
+function detailsAeroport(ident) {
+  const id = String(ident == null ? '' : ident).trim();
+  if (!id) return { ok: false, reason: 'no-ident' };
+  let buf;
+  try { buf = fs.readFileSync(path.join(dataDir(), 'airports-msfs.jsonl')); }
+  catch (_) { return { ok: false, reason: 'no-data' }; }
+
+  const a = ligneTerrain(buf, id);
+  if (!a) return { ok: false, reason: 'not-found' };
+
+  const code = (a.icao_code && String(a.icao_code).trim())
+    || (a.gps_code && String(a.gps_code).trim())
+    || (a.local_code && String(a.local_code).trim())
+    || a.ident || '';
+  const elev = parseFloat(a.elevation_ft);
+  return {
+    ok: true,
+    airport: {
+      ident: a.ident,
+      code,
+      name: a.name || a.ident,
+      lat: parseFloat(a.latitude_deg),
+      lon: parseFloat(a.longitude_deg),
+      type: a.type,
+      elevation_ft: Number.isFinite(elev) ? Math.round(elev) : null,
+    },
+    pistes: pistesGeolocalisees(a.runways),
+    parkings: Array.isArray(a.parkings) ? a.parkings : [],
+  };
+}
+
+// ------------------------------------------------------------
+// Pistes d'une emprise : le tracé des pistes sur la carte
+// ------------------------------------------------------------
+//
+// Deux accès à la même donnée, parce que ce ne sont pas les mêmes usages :
+//
+//   • detailsAeroport (tour de piste) interroge UN terrain, à l'ouverture d'une
+//     modale. Relecture ciblée du fichier, rien en mémoire.
+//
+//   • pistesDansBbox (couche « pistes ») balaie une emprise à CHAQUE
+//     déplacement de carte. Vingt relectures du fichier par panoramique
+//     seraient absurdes : il faut un index.
+//
+// Mesuré dans Cap CAVVA : l'index pèse ~24 Mo et se bâtit en ~770 ms. Il n'est
+// donc monté QUE si l'une des deux couches est allumée — qui ne trace ni pistes
+// ni places ne paie rien. Ensuite, une emprise coûte ~7 ms.
+let _pistes = null;   // Map ident -> { pistes, rayonPistesM, rayonParkingsM, aDesPlaces }
+
+// Distance de la référence du terrain au point le plus lointain d'une liste.
+// C'est de ce rayon qu'il faut élargir l'emprise pour ne pas perdre le terrain
+// de vue quand on en regarde le bout.
+function rayonDepuisReference(refLat, refLon, points) {
+  const mLat = 111320;
+  const mLon = 111320 * Math.max(1e-6, Math.abs(Math.cos(refLat * Math.PI / 180)));
+  let r = 0;
+  for (const [la, lo] of points) {
+    if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+    const d = Math.hypot((lo - refLon) * mLon, (la - refLat) * mLat);
+    if (d > r) r = d;
+  }
+  return r;
+}
+
+// Un seul balayage du fichier sert les deux couches. Mesurer l'étendue des
+// places pendant qu'on y est ne coûte rien — la ligne est déjà lue et analysée
+// — et évite d'avoir à DEVINER une marge forfaitaire.
+function chargerIndexPistes() {
+  if (_pistes) return _pistes;
+  const m = new Map();
+  for (const a of lireJsonl(path.join(dataDir(), 'airports-msfs.jsonl'))) {
+    if (!a || !a.ident) continue;
+    const ps = pistesGeolocalisees(a.runways);
+    const parkings = Array.isArray(a.parkings) ? a.parkings : [];
+    // Un terrain sans piste géolocalisée NI place n'a rien à faire dans l'index.
+    if (!ps.length && !parkings.length) continue;
+    const lat = parseFloat(a.latitude_deg), lon = parseFloat(a.longitude_deg);
+    const bon = Number.isFinite(lat) && Number.isFinite(lon);
+    const seuils = [];
+    for (const p of ps) { seuils.push([p.leLat, p.leLon]); seuils.push([p.heLat, p.heLon]); }
+    m.set(a.ident, {
+      pistes: ps,
+      rayonPistesM: bon ? rayonDepuisReference(lat, lon, seuils) : 0,
+      rayonParkingsM: bon
+        ? rayonDepuisReference(lat, lon, parkings.map((q) => [q.latitude_deg, q.longitude_deg]))
+        : 0,
+      aDesPlaces: parkings.length > 0,
+    });
+  }
+  _pistes = m;
+  return _pistes;
+}
+
+// Terrains de l'emprise qui ont au moins une piste exploitable, avec leurs
+// pistes. Le renderer n'a besoin de rien d'autre pour dessiner : les seuils
+// portent à la fois la position, la longueur et l'orientation.
+function pistesDansBbox(bbox) {
+  if (!bbox) return { ok: false, reason: 'no-bbox' };
+  const all = chargerAeroports();
+  if (!all.length) return { ok: false, reason: 'no-data' };
+  const idx = chargerIndexPistes();
+  const terrains = [];
+  for (const a of all) {
+    const e = idx.get(a.ident);
+    if (!e || !e.pistes.length) continue;
+    if (!dansBboxElargi(a, bbox, e.rayonPistesM)) continue;
+    terrains.push({ ident: a.ident, code: a.code, name: a.name, type: a.type, pistes: e.pistes });
+  }
+  return { ok: true, terrains };
+}
+
+// ------------------------------------------------------------
+// Places de stationnement d'une emprise
+// ------------------------------------------------------------
+//
+// Troisième accès à la base, et troisième structure — pour une troisième façon
+// d'y entrer. Les places ne s'affichent qu'au zoom 15, où la fenêtre couvre
+// trois kilomètres : un ou deux terrains, jamais davantage. Les garder toutes
+// en mémoire serait payer des centaines de milliers de places pour en montrer
+// trente. On relit donc le fichier, une fois pour toute l'emprise, et on n'y
+// cherche que les terrains visibles — puis on garde ce qu'on a lu, car au
+// zoom 15 le panoramique suivant regarde le même terrain.
+//
+// Plafond de terrains lus en une fois. Il ne vide pas la couche quand il est
+// atteint : on garde les PLUS PROCHES du centre de l'écran. Autour de Los
+// Angeles, trente-trois terrains se pressent dans huit kilomètres — presque
+// tous des hélistations. Les écarter d'un bloc éteindrait les places de LAX,
+// c'est-à-dire précisément celles qu'on regarde.
+const PARKINGS_MAX_TERRAINS = 24;
+
+// Places déjà lues, par terrain. Au zoom 15 on tourne autour d'UN terrain : sans
+// ce cache, chaque panoramique relirait le fichier entier. Plafonné, car un
+// grand terrain pèse quelques centaines de places.
+const PARKINGS_CACHE_MAX = 32;
+const _parkingsCache = new Map();   // ident -> tableau de places (null = terrain sans champ)
+
+function parkingsDeTerrain(buf, ident) {
+  if (_parkingsCache.has(ident)) return _parkingsCache.get(ident);
+  if (!buf) return undefined;   // garde-fou : rien à lire sans tampon
+  const o = ligneTerrain(buf, ident);
+  // null = terrain introuvable : on ne met rien en cache, la base peut changer.
+  if (!o) return null;
+  const ps = Array.isArray(o.parkings) ? o.parkings : null;
+  if (_parkingsCache.size >= PARKINGS_CACHE_MAX) {
+    _parkingsCache.delete(_parkingsCache.keys().next().value);   // la plus ancienne
+  }
+  _parkingsCache.set(ident, ps);
+  return ps;
+}
+
+function parkingsDansBbox(bbox) {
+  if (!bbox) return { ok: false, reason: 'no-bbox' };
+  const all = chargerAeroports();
+  if (!all.length) return { ok: false, reason: 'no-data' };
+
+  // Même correction que pour les pistes : on cherche les terrains dans une
+  // emprise élargie de leur propre rayon, sans quoi les places s'éteignent dès
+  // que la référence du terrain sort du cadre.
+  //
+  // L'index des pistes est bâti au besoin : qui regarde les places d'une
+  // plate-forme regarde ses pistes juste avant.
+  const idx = chargerIndexPistes();
+  let vises = [];
+  for (const a of all) {
+    const e = idx.get(a.ident);
+    if (!e || !e.aDesPlaces) continue;   // inutile d'aller lire un terrain sans place
+    if (!dansBboxElargi(a, bbox, e.rayonParkingsM)) continue;
+    vises.push(a);
+  }
+  if (!vises.length) return { ok: true, terrains: [], baseSansParkings: idx.size > 0 && !_baseADesPlaces(idx) };
+
+  // Au-delà du plafond, on garde les plus proches du centre de la vue plutôt
+  // que de tout éteindre.
+  let tropDeTerrains = false;
+  if (vises.length > PARKINGS_MAX_TERRAINS) {
+    tropDeTerrains = true;
+    const cLat = (bbox.south + bbox.north) / 2;
+    const cLon = (bbox.west + bbox.east) / 2;
+    const cosL = Math.max(1e-6, Math.abs(Math.cos(cLat * Math.PI / 180)));
+    vises.sort((x, y) => {
+      const dx = Math.hypot((x.lon - cLon) * cosL, x.lat - cLat);
+      const dy = Math.hypot((y.lon - cLon) * cosL, y.lat - cLat);
+      return dx - dy;
+    });
+    vises = vises.slice(0, PARKINGS_MAX_TERRAINS);
+  }
+
+  // Le fichier n'est relu que s'il reste un terrain hors cache.
+  let buf = null;
+  const aLire = vises.some((a) => !_parkingsCache.has(a.ident));
+  if (aLire) {
+    try { buf = fs.readFileSync(path.join(dataDir(), 'airports-msfs.jsonl')); }
+    catch (_) { return { ok: false, reason: 'no-data' }; }
+  }
+
+  const terrains = [];
+  for (const a of vises) {
+    const ps = parkingsDeTerrain(buf, a.ident);
+    if (!ps || !ps.length) continue;
+    // lat/lon : le point de référence du terrain. Il sert d'ancre au décalage de
+    // monde côté carte — toute l'aire doit tenir dans la même copie.
+    terrains.push({ ident: a.ident, code: a.code, name: a.name, lat: a.lat, lon: a.lon, parkings: ps });
+  }
+  return { ok: true, terrains, tropDeTerrains, baseSansParkings: false };
+}
+
+// Aucune place NULLE PART dans l'index = base antérieure à leur extraction. Ce
+// n'est pas « aucune place ici », c'est « cette base n'en contient pas » : les
+// deux se disent autrement à l'écran, d'où le drapeau. La réponse est mémorisée,
+// l'index ne changeant qu'à un import.
+let _sansPlaces = null;
+function _baseADesPlaces(idx) {
+  if (_sansPlaces !== null) return !_sansPlaces;
+  for (const [, e] of idx) if (e.aDesPlaces) { _sansPlaces = false; return true; }
+  _sansPlaces = true;
+  return false;
+}
+
 // Invalide les caches (après un import) → rechargés à la prochaine requête.
 // _index en fait partie : il est bâti SUR ces caches, le laisser survivre à un
 // import ferait chercher dans l'ancienne base.
-function reload() { _airports = null; _navaids = null; _index = null; _addons = null; }
+function reload() {
+  _airports = null; _navaids = null; _index = null; _addons = null;
+  _pistes = null; _parkingsCache.clear(); _sansPlaces = null;
+}
 
 // Après un scan d'add-ons : seul addons.json a changé, inutile de relire les
 // dizaines de Mo de la base.
@@ -313,5 +618,6 @@ function rechargerAddons() { _addons = null; }
 
 module.exports = {
   aeroportsDansBbox, navaidsDansBbox, aeroportParCode, rechercherLieux, featureProche,
+  detailsAeroport, pistesDansBbox, parkingsDansBbox,
   chargerAeroports, rechargerAddons, reload,
 };

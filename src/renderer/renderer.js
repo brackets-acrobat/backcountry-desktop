@@ -123,6 +123,8 @@ const layerState = {
   seaplanes: localStorage.getItem('bc-layer-seaplanes') === '1',
   navaids:   localStorage.getItem('bc-layer-navaids')   === '1',
   lieux:     localStorage.getItem('bc-layer-lieux')     === '1',
+  pistes:    localStorage.getItem('bc-layer-pistes')    === '1',
+  parkings:  localStorage.getItem('bc-layer-parkings')  === '1',
 };
 
 // Icône avion (vue de dessus, pointe vers le nord à 0°). Une <img> dans un
@@ -245,6 +247,31 @@ function escapeHtml(s) {
 // Décale une longitude [-180,180] vers la copie du monde visible (scroll infini).
 function lonVersVue(lon, west) { return west + ((((lon - west) % 360) + 360) % 360); }
 
+// Convertisseur de longitudes d'une FIGURE ÉTENDUE — piste, aire de
+// stationnement. Repris de Cap CAVVA. Rendu sous forme de fonction, et non de
+// simple décalage, pour qu'on ne puisse pas l'appliquer à un point en oubliant
+// les autres : c'est précisément cet oubli qui cassait le tracé.
+//
+// POURQUOI PAS lonVersVue SUR CHAQUE POINT. Elle ramène chaque longitude dans
+// [ouest, ouest + 360[, indépendamment des autres. Un marqueur s'en accommode ;
+// une piste non. Que le bord ouest de la vue tombe ENTRE ses deux seuils — ce
+// qui arrive dès qu'on zoome sur une grande plate-forme — et l'un des deux part
+// un tour de Terre plus loin que l'autre : le rectangle s'étire alors sur 359,9°
+// et barre l'écran d'un bout à l'autre.
+//
+// Deux corrections, donc, et il faut les DEUX :
+//   1. la copie du monde est choisie UNE FOIS pour toute la figure, au plus
+//      près du CENTRE de la vue et non de son bord ouest — une figure qui
+//      déborde du cadre doit rester à côté, pas sauter à l'antipode ;
+//   2. chaque point est ensuite déroulé autour de l'ancre, à moins de 180°
+//      d'elle — sans quoi une piste posée SUR l'antiméridien, dont un seuil est
+//      à +179,99 et l'autre à −179,99, enjamberait encore la carte entière.
+function projecteurFigure(lonRef, bbox) {
+  const centre = (bbox.west + bbox.east) / 2;
+  const decalage = 360 * Math.round((centre - lonRef) / 360);
+  return (lon) => lonRef + decalage + ((((lon - lonRef) % 360) + 540) % 360 - 180);
+}
+
 // Couleur du marqueur aéroport selon la surface de la piste principale (NavXpress).
 function surfaceMarkerColors(surface) {
   const s = String(surface || '').toLowerCase();
@@ -363,6 +390,10 @@ function planifierRafraichirCouches() {
 function rafraichirCouches() {
   rafraichirAeroports();
   rafraichirNavaids();
+  // Pistes (zoom 12) et places (zoom 15) vivent dans leurs propres fichiers,
+  // chargés APRÈS celui-ci : le tout premier appel, depuis initMap, les précède.
+  if (typeof rafraichirPistes === 'function') rafraichirPistes();
+  if (typeof rafraichirParkings === 'function') rafraichirParkings();
 }
 
 async function rafraichirAeroports() {
@@ -587,6 +618,11 @@ function ouvrirMenuAeroport(airport, e) {
   // Cercle de portée centré sur l'aéroport (rayon saisi dans la modale).
   items.push({ label: t('ctxRangeCircle'), action: () => ouvrirModaleCercle(L.latLng(airport.lat, airport.lon)) });
   if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
+  // Tour de piste : seulement là où il y a une piste. Un héliport n'en a pas,
+  // et le marqueur porte déjà la réponse — pas besoin d'interroger la base pour
+  // construire le menu.
+  if (airport.runway) items.push({ label: t('ctxTourDePiste'), action: () => ouvrirModaleTourDePiste(airport) });
+  if (aDesToursDePiste()) items.push({ label: t('ctxTourDePisteClear'), action: effacerTousToursDePiste });
   ouvrirMenuContextuel(p.x, p.y, items);
 }
 
@@ -602,6 +638,7 @@ function itemsFondCarte(latlng) {
   ];
   if (aUneMesure()) items.push({ label: t('ctxMesureEffacer'), action: effacerMesure });
   if (aDesCercles()) items.push({ label: t('ctxRangeClear'), action: effacerCercles });
+  if (aDesToursDePiste()) items.push({ label: t('ctxTourDePisteClear'), action: effacerTousToursDePiste });
   return items;
 }
 function ouvrirMenuFondCarte(e) {
@@ -629,6 +666,17 @@ function ouvrirMenuFlanquement(e, supprimerCeFlanquement) {
   const p = ctxPageXY(e);
   const items = itemsFondCarte(e.latlng);
   items.push({ label: t('ctxFlanquementDeleteOne'), action: supprimerCeFlanquement });
+  ouvrirMenuContextuel(p.x, p.y, items);
+}
+
+// Menu sur le tracé d'un tour de piste : options du fond de carte + suppression
+// de CE circuit. Même façon que pour un cercle de portée ou un flanquement.
+function ouvrirMenuTourDePiste(e, supprimerCeTour) {
+  if (e.originalEvent) e.originalEvent.preventDefault();
+  L.DomEvent.stopPropagation(e);
+  const p = ctxPageXY(e);
+  const items = itemsFondCarte(e.latlng);
+  items.push({ label: t('ctxTourDePisteDeleteOne'), action: supprimerCeTour });
   ouvrirMenuContextuel(p.x, p.y, items);
 }
 
@@ -925,6 +973,33 @@ function distanceNM(latA, lonA, latB, lonB) {
   return 2 * _RAYON_TERRE_NM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+// Point atteint depuis (lat, lon) en suivant un cap VRAI sur `distM` mètres.
+// La longitude rendue n'est PAS repliée dans [-180, 180] : celui qui construit
+// une figure locale (tour de piste, rectangle de piste) travaille dans un repère
+// déroulé autour de son point de départ, ce qui évite qu'un côté traverse la
+// carte de part en part sur l'antiméridien. À replier soi-même avant tout
+// enregistrement.
+function pointADistance(lat, lon, capVrai, distM) {
+  const R = 6371000;                                   // rayon terrestre, mètres
+  const d = distM / R, t = capVrai * Math.PI / 180;
+  const f1 = lat * Math.PI / 180, l1 = lon * Math.PI / 180;
+  const sinf2 = Math.sin(f1) * Math.cos(d) + Math.cos(f1) * Math.sin(d) * Math.cos(t);
+  const f2 = Math.asin(Math.min(1, Math.max(-1, sinf2)));
+  const y = Math.sin(t) * Math.sin(d) * Math.cos(f1);
+  const x = Math.cos(d) - Math.sin(f1) * sinf2;
+  return { lat: f2 * 180 / Math.PI, lon: (l1 + Math.atan2(y, x)) * 180 / Math.PI };
+}
+
+// Angle ÉCRAN (degrés, sens horaire) alignant un texte horizontal sur une ligne
+// de cap vrai `cap`. Carte nord en haut : nord = −y, est = +x. Ramené dans
+// (−90, 90] pour ne jamais écrire à l'envers.
+function angleEcranPourCap(cap) {
+  const r = cap * Math.PI / 180;
+  let a = Math.atan2(-Math.cos(r), Math.sin(r)) * 180 / Math.PI;
+  if (a > 90) a -= 180; else if (a < -90) a += 180;
+  return a;
+}
+
 // Portage fidèle de atools::geo::Pos::distanceMeterToLine (Little Navmap) :
 // projette P sur la droite grand-cercle A→B. Toutes distances en NM.
 //   status        : 'ALONG_TRACK' (pied entre A et B), 'BEFORE_START' (avant A),
@@ -1128,6 +1203,9 @@ function construirePlan() {
     // Flanquements VOR : identité de la station et positions seulement — radial
     // et distance se recalculent à l'ouverture, la déclinaison ayant pu changer.
     flanquements: flanquementsEnregistrables(),
+    // Tours de piste : paramètres saisis et seuils de la piste. La déclinaison
+    // y figure, elle — les caps affichés doivent être ceux de la préparation.
+    toursDePiste: toursDePisteEnregistrables(),
     // Paramètres de navigation (vitesse propre, vent prévu) : ils font partie de
     // la préparation du vol au même titre que les altitudes de legs.
     ...paramsNavEnregistrables(),
@@ -1229,6 +1307,10 @@ function appliquerPlan(plan) {
   // La signature de référence n'est prise qu'une fois les chargements
   // asynchrones retombés : mesurée tout de suite, elle décrirait un plan encore
   // sans ses flanquements, et le plan passerait pour modifié dès son ouverture.
+  // Tours de piste : tout est dans le fichier, rien n'est recalculé — la relecture
+  // est synchrone, donc faite avant la prise de signature. Absent d'un plan
+  // antérieur → aucun circuit.
+  chargerToursDePiste(plan.toursDePiste);
   Promise.all([
     chargerFlanquements(plan.flanquements),
     majLigneRoute({ fit: true }),   // re-résout les ICAO, redessine, recalcule la déclinaison, recadre
@@ -1247,6 +1329,7 @@ function reinitialiserPlan() {
   _legActif = 0;
   effacerCercles();   // comme NavXpressVFR : « Nouveau plan » efface aussi les cercles
   effacerTousFlanquements();   // les flanquements visaient les points de CE plan
+  effacerTousToursDePiste();   // et les circuits, des terrains de CE plan
   effacerMesure();
   _planSignatureEnregistree = null;   // plan vide : planEnregistrable() est faux, rien à perdre
   majBoutonsPlan();
@@ -1626,6 +1709,12 @@ function ajouterControlesCarte() {
           `<label><input type="checkbox" data-layer="heliports"> <span data-i18n="layerHeliports">${t('layerHeliports')}</span></label>` +
           `<label><input type="checkbox" data-layer="seaplanes"> <span data-i18n="layerSeaplanes">${t('layerSeaplanes')}</span></label>` +
           `<label><input type="checkbox" data-layer="navaids"> <span data-i18n="layerNavaids">${t('layerNavaids')}</span></label>` +
+          // Pistes et places : même donnée MSFS, mais leurs propres seuils de
+          // zoom (12 et 15), rappelés dans le libellé — sans quoi la case cochée
+          // au zoom 8 semblerait ne rien faire.
+          `<label><input type="checkbox" data-layer="pistes"> <span data-i18n="layerPistes">${t('layerPistes')}</span></label>` +
+          `<label><input type="checkbox" data-layer="parkings"> <span data-i18n="layerParkings">${t('layerParkings')}</span></label>` +
+          `<p id="hint-parkings" class="map-dd-hint" data-i18n="parkingsBaseAncienne" hidden>${t('parkingsBaseAncienne')}</p>` +
           `<label><input type="checkbox" data-layer="lieux"> <span data-i18n="layerLieux">${t('layerLieux')}</span></label>` +
         `</div>` +
       `</div>` +

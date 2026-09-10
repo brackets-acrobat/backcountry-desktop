@@ -1161,3 +1161,110 @@ main.profil-open .leaflet-bottom { bottom: var(--vp-h, 210px); }
   font-size: 13px;
   pointer-events: none;
 }
+
+/* ============================================================
+   Couches « pistes » et « parkings » — avis sous la case
+   ============================================================ */
+
+/* Avis « base sans places » posé sous la case Parkings : en orange d'alerte
+   moyenne, car rien n'est cassé — il manque seulement un réimport. */
+.map-dd-hint {
+  margin: 0 .5rem 4px;
+  max-width: 190px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.map-dd-hint[hidden] { display: none; }
+
+/* ============================================================
+   Pistes tracées sur la carte — numéros aux seuils
+   ============================================================ */
+
+/* Le rectangle de piste est un polygone Leaflet : il n'a pas besoin de CSS.
+   Seuls les numéros en ont, posés en divIcon comme les caps du tour de piste
+   (classe qui remplace celle de Leaflet, sinon un cadre blanc apparaît). */
+.piste-etiquette {
+  background: none;
+  border: none;
+}
+
+/* Numéro de piste : sombre à cerne blanc, pour rester lisible aussi bien sur
+   l'ombrage d'OpenTopoMap que sur l'imagerie satellite. Plus petit que les caps
+   du tour de piste (24 px) : un numéro de piste accompagne le tracé, il ne le
+   commente pas. */
+.piste-numero {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center center;
+  color: #1f2933;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-text-stroke: 2.5px #fff;
+  paint-order: stroke fill;
+}
+
+/* ============================================================
+   Tour de piste — modale et étiquettes de carte
+   ============================================================ */
+
+/* Listes de choix de la modale. La liste des pistes défile (un grand terrain en
+   aligne huit extrémités), celle du sens du circuit n'en a pas besoin. */
+.tdp-liste {
+  margin: .3rem 0 .9rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.tdp-liste:not(.tdp-liste-sens) { max-height: 160px; overflow-y: auto; }
+.tdp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: .35rem .6rem;
+  cursor: pointer;
+}
+.tdp-item:hover { background: var(--panel-2); }
+.tdp-item-nom { font-size: 14px; }
+
+/* Les quatre longueurs sur deux colonnes : la modale tiendrait sur une seule,
+   mais elle mesurerait alors une hauteur d'écran pour quatre nombres. */
+.tdp-champs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+
+/* Étiquette posée sur la carte (divIcon). La classe remplace celle de Leaflet
+   par défaut, sinon le cadre blanc du divIcon apparaît derrière le texte.
+   Ancrage 0×0 : le texte est centré puis tourné par son propre transform. */
+.tdp-etiquette {
+  background: none;
+  border: none;
+}
+
+/* Cap magnétique d'une branche. Contour blanc peint AVANT le remplissage
+   (paint-order) : le trait de 2 px, centré sur le bord, ne laisse qu'un
+   liseré blanc d'environ 1 px à l'extérieur et n'éclaircit pas le rouge. */
+.tdp-cap,
+.tdp-alt {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center center;
+  color: #ff0000;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-text-stroke: 2px #fff;
+  paint-order: stroke fill;
+}
+.tdp-cap { font-size: 24px; }
+.tdp-alt { font-size: 20px; }
+
+/* Pointe de flèche (sens du circuit) posée au milieu d'une branche. */
+.tdp-fleche {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: center center;
+  pointer-events: none;
+}

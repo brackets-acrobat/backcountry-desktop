@@ -47,7 +47,7 @@ npm start                              # nécessite MSFS 2024 lancé pour SimCon
 | `src/main/fsm.js` | Machine à états du poser | 🚧 stub + contrat |
 | `src/main/scan.js` | Buffer profil relief (passage bas) | 🚧 stub + contrat |
 | `src/main/capture.js` | Capture d'écran staging | 🚧 stub + contrat |
-| `src/main/airports-data.js` | Bases MSFS extraites : bbox, code, recherche par nom | ✅ |
+| `src/main/airports-data.js` | Bases MSFS extraites : bbox, code, recherche par nom, pistes, places de stationnement | ✅ |
 | `src/main/export-gtn750.js` | Dépose le plan de vol (`fpl.pln`) dans le GTN750 de PMS50 | ✅ |
 | `src/main/addons-scan.js` | Détection des terrains add-on par lecture des paquets sur le disque | ✅ |
 | `src/preload.js` | Pont sécurisé (contextIsolation) | ✅ |
@@ -70,6 +70,9 @@ partagée que le socle.
 | `compas.js` | Rose des vents magnétique (portage de Little Navmap) |
 | `export-gtn750.js` | Construction du PLN pour le GTN750 de PMS50 |
 | `addons.js` | Détection des terrains fournis par un paquet add-on (anneau jaune sur la carte) |
+| `pistes-carte.js` | Pistes tracées à l'échelle (zoom 12), numéros aux seuils (zoom 14) |
+| `parkings-carte.js` | Places de stationnement (zoom 15) — exige un réimport des aéroports |
+| `tour-de-piste.js` | Tour de piste tracé au clic droit sur un terrain, enregistré dans le plan |
 
 ## Briques SimConnect (validées)
 

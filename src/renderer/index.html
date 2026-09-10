@@ -383,6 +383,51 @@
     </div>
   </div>
 
+  <!-- Modale : tour de piste (clic droit sur un terrain) -->
+  <div id="tdp-overlay" class="overlay" hidden>
+    <div class="modal">
+      <h3><i class="ph-light ph-arrows-clockwise"></i> <span data-i18n="tdpTitre">Tour de piste</span></h3>
+      <p class="modal-text" id="tdp-terrain">&mdash;</p>
+
+      <label class="field-label" data-i18n="tdpPisteLabel">Piste (sens d'atterrissage)</label>
+      <div id="tdp-pistes" class="tdp-liste"></div>
+      <p id="tdp-aucune" class="modal-text" data-i18n="tdpAucunePiste" hidden>Aucune piste géolocalisée sur ce terrain.</p>
+
+      <label class="field-label" data-i18n="tdpSensLabel">Sens du circuit</label>
+      <div class="tdp-liste tdp-liste-sens">
+        <label class="tdp-item"><input type="radio" name="tdp-sens" value="gauche" checked>
+          <span class="tdp-item-nom" data-i18n="tdpSensGauche">Main gauche</span></label>
+        <label class="tdp-item"><input type="radio" name="tdp-sens" value="droite">
+          <span class="tdp-item-nom" data-i18n="tdpSensDroite">Main droite</span></label>
+      </div>
+
+      <div class="tdp-champs">
+        <div>
+          <label class="field-label" for="tdp-montee" data-i18n="tdpMontee">Montée initiale (NM)</label>
+          <input id="tdp-montee" class="field-input" type="text" inputmode="decimal" maxlength="5" autocomplete="off" spellcheck="false" placeholder="0.5">
+        </div>
+        <div>
+          <label class="field-label" for="tdp-traversier" data-i18n="tdpTraversier">Vent traversier (NM)</label>
+          <input id="tdp-traversier" class="field-input" type="text" inputmode="decimal" maxlength="5" autocomplete="off" spellcheck="false" placeholder="0.5">
+        </div>
+        <div>
+          <label class="field-label" for="tdp-finale" data-i18n="tdpFinale">Finale (NM)</label>
+          <input id="tdp-finale" class="field-input" type="text" inputmode="decimal" maxlength="5" autocomplete="off" spellcheck="false" placeholder="0.7">
+        </div>
+        <div>
+          <label class="field-label" for="tdp-altitude" data-i18n="tdpAltitude">Altitude du circuit (ft)</label>
+          <input id="tdp-altitude" class="field-input" type="text" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" placeholder="1000">
+        </div>
+      </div>
+
+      <p id="tdp-error" class="modal-error"></p>
+      <div class="modal-actions">
+        <button id="btn-tdp-cancel" class="btn"><span data-i18n="btnCancel">Annuler</span></button>
+        <button id="btn-tdp-ok" class="btn btn-accent"><i class="ph-light ph-arrows-clockwise"></i> <span data-i18n="tdpTracer">Tracer</span></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modale : flanquement VOR (choix du point de la route à flanquer) -->
   <div id="flanq-overlay" class="overlay" hidden>
     <div class="modal">
@@ -493,5 +538,10 @@
   <script src="js/features/compas.js"></script>
   <script src="js/features/export-gtn750.js"></script>
   <script src="js/features/addons.js"></script>
+  <!-- Pistes, places et tour de piste : chacun crée sa propre couche au
+       chargement, la carte existant déjà (initMap est appelé par renderer.js). -->
+  <script src="js/features/pistes-carte.js"></script>
+  <script src="js/features/parkings-carte.js"></script>
+  <script src="js/features/tour-de-piste.js"></script>
 </body>
 </html>

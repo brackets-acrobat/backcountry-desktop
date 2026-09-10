@@ -184,6 +184,7 @@ function defineAirport(h) {
   add('N_RUNWAYS');       // i32
   add('N_FREQUENCIES');   // i32
   add('N_HELIPADS');      // i32
+  add('N_TAXI_PARKINGS'); // i32 — places de stationnement (taxiways ignorés)
   add('NAME');            // string (dernier champ du nœud)
 
   add('OPEN RUNWAY');
@@ -220,6 +221,25 @@ function defineAirport(h) {
   add('SURFACE');     // i32
   add('CLOSE HELIPAD');
 
+  // Places de stationnement. On ne demande QUE les champs utiles au tracé : le
+  // nœud en offre d'autres (TAXI_POINT_TYPE, ORIENTATION) qui ne servent qu'à
+  // relier les places au réseau de roulage — dont on ne fait rien ici.
+  //
+  // ATTENTION : ce nœud ne porte NI LATITUDE NI LONGITUDE. Sa position est
+  // donnée en décalage métrique depuis le point de référence du terrain
+  // (BIAS_X sur l'axe des longitudes, BIAS_Z sur celui des latitudes), à
+  // recomposer — cf. positionParking().
+  add('OPEN TAXI_PARKING');
+  add('TYPE');        // i32 — nature de la place (RAMP_GA, GATE_HEAVY, FUEL...)
+  add('NAME');        // i32 — ÉNUMÉRATION, pas une chaîne (PARKING, GATE, GATE_A...)
+  add('SUFFIX');      // i32 — même énumération, lue comme une lettre
+  add('NUMBER');      // u32 — numéro de la place
+  add('HEADING');     // f32 — orientation de l'avion en stationnement
+  add('RADIUS');      // f32 — rayon (m) : c'est la TAILLE de la place
+  add('BIAS_X');      // f32 — mètres depuis la référence, axe des longitudes
+  add('BIAS_Z');      // f32 — mètres depuis la référence, axe des latitudes
+  add('CLOSE TAXI_PARKING');
+
   add('CLOSE AIRPORT');
 }
 
@@ -234,6 +254,7 @@ function parseAirportNode(d) {
   const nRwy = d.readInt32();
   const nFreq = d.readInt32();
   const nHeli = d.readInt32();
+  const nPark = d.readInt32();
   const name = readTrailingString(d);
   const magNorm = magvar > 180 ? magvar - 360 : magvar;
   return {
@@ -241,7 +262,7 @@ function parseAirportNode(d) {
     longitude_deg: round(longitude, 6),
     elevation_ft: Math.round(altitude * M_TO_FT),
     magnetic_variation_deg: round(magNorm, 2),
-    _nRwy: nRwy, _nFreq: nFreq, _nHeli: nHeli,
+    _nRwy: nRwy, _nFreq: nFreq, _nHeli: nHeli, _nPark: nPark,
     name,
   };
 }
@@ -354,6 +375,121 @@ function parseHelipadNode(d, surfaceCodes) {
 }
 
 // --------------------------------------------------------------
+// Places de stationnement
+// --------------------------------------------------------------
+
+// Nature de la place (champ TYPE). Valeurs du SDK MSFS.
+const PARKING_TYPE = [
+  'NONE', 'RAMP_GA', 'RAMP_GA_SMALL', 'RAMP_GA_MEDIUM', 'RAMP_GA_LARGE',
+  'RAMP_CARGO', 'RAMP_MIL_CARGO', 'RAMP_MIL_COMBAT', 'GATE_SMALL',
+  'GATE_MEDIUM', 'GATE_HEAVY', 'DOCK_GA', 'FUEL', 'VEHICLE',
+  'RAMP_GA_EXTRA', 'GATE_EXTRA',
+];
+
+// Champs NAME et SUFFIX : la MÊME énumération. 0 à 11 nomment la place, 12 à 37
+// sont les lettres A à Z — c'est ainsi qu'un « GATE A » s'écrit, et c'est aussi
+// ce qu'on lit dans SUFFIX quand une place porte une lettre.
+const PARKING_NOM = [
+  '', 'PARKING', 'N PARKING', 'NE PARKING', 'E PARKING', 'SE PARKING',
+  'S PARKING', 'SW PARKING', 'W PARKING', 'NW PARKING', 'GATE', 'DOCK',
+];
+const PARKING_LETTRE_BASE = 12;   // 12 = A, 13 = B, ... 37 = Z
+
+function parkingTypeLabel(code) { return PARKING_TYPE[code] || ('type ' + code); }
+
+// Libellé d'un code NAME/SUFFIX : un nom pour 0 à 11, une lettre au-delà.
+function parkingLibelle(code) {
+  if (code >= PARKING_LETTRE_BASE && code <= PARKING_LETTRE_BASE + 25) {
+    return String.fromCharCode(65 + (code - PARKING_LETTRE_BASE));
+  }
+  return PARKING_NOM[code] || '';
+}
+
+// Identifiant affiché : nom, lettre de suffixe, numéro — « GATE A 12 »,
+// « PARKING 3 », « N PARKING 45 ». Les morceaux vides disparaissent, de sorte
+// qu'une place sans nom ni suffixe se réduise à son numéro.
+function parkingIdent(name, suffix, number) {
+  const bouts = [parkingLibelle(name), parkingLibelle(suffix)];
+  if (Number.isFinite(number) && number > 0) bouts.push(String(number));
+  return bouts.filter(Boolean).join(' ');
+}
+
+// Mètres par degré de latitude et de longitude à une latitude donnée (séries
+// WGS84 classiques, justes au mètre près). L'approximation à 111 320 m/degré
+// suffirait pour une piste ; pas pour une place de parking, qu'elle décalerait
+// d'une quinzaine de mètres à 5 km de la référence — soit dix largeurs de
+// place, sur une carte qui les montre au zoom 15.
+function metresParDegre(latDeg) {
+  const f = latDeg * Math.PI / 180;
+  return {
+    lat: 111132.92 - 559.82 * Math.cos(2 * f) + 1.175 * Math.cos(4 * f) - 0.0023 * Math.cos(6 * f),
+    lon: 111412.84 * Math.cos(f) - 93.5 * Math.cos(3 * f) + 0.118 * Math.cos(5 * f),
+  };
+}
+
+// Position d'une place : le point de référence du terrain décalé de BIAS_X vers
+// l'est et de BIAS_Z vers le nord.
+//
+// RÉSERVE : le SDK dit « bias from airport reference along the longitudinal /
+// latitudinal axis in meters », sans préciser le SENS. On prend est et nord
+// positifs ; le contrôle de cohérence de fin d'extraction mesure la distance
+// des places aux pistes et révélerait une convention inversée.
+function positionParking(refLat, refLon, biasX, biasZ) {
+  const m = metresParDegre(refLat);
+  return {
+    latitude_deg: round(refLat + biasZ / m.lat, 6),
+    longitude_deg: round(refLon + biasX / (m.lon || 1e-6), 6),
+  };
+}
+
+function parseTaxiParkingNode(d) {
+  const type = d.readInt32();
+  const name = d.readInt32();
+  const suffix = d.readInt32();
+  const number = d.readInt32();      // u32 côté SDK ; aucun numéro n'atteint 2^31
+  const heading = d.readFloat32();
+  const radius = d.readFloat32();
+  const biasX = d.readFloat32();
+  const biasZ = d.readFloat32();
+  return {
+    ident: parkingIdent(name, suffix, number),
+    type: parkingTypeLabel(type),
+    type_code: type,
+    number,
+    headingDegT: round(heading, 1),
+    radius_m: round(radius, 1),
+    _biasX: biasX,
+    _biasZ: biasZ,
+  };
+}
+
+// Places de SERVICE (véhicules) : écartées. Ce ne sont pas des emplacements
+// d'aéronef, et sur une grande plate-forme elles doubleraient le nombre de
+// pastilles pour rien.
+const PARKING_VEHICULE = 13;
+
+// Places d'un terrain, positionnées depuis la référence de celui-ci.
+function parkingsPositionnes(parkings, refLat, refLon) {
+  const out = [];
+  for (const p of (parkings || [])) {
+    if (p.type_code === PARKING_VEHICULE) continue;
+    if (!Number.isFinite(p._biasX) || !Number.isFinite(p._biasZ)) continue;
+    const pos = positionParking(refLat, refLon, p._biasX, p._biasZ);
+    out.push({
+      ident: p.ident,
+      type: p.type,
+      type_code: p.type_code,
+      number: p.number,
+      headingDegT: p.headingDegT,
+      radius_m: p.radius_m,
+      latitude_deg: pos.latitude_deg,
+      longitude_deg: pos.longitude_deg,
+    });
+  }
+  return out;
+}
+
+// --------------------------------------------------------------
 // Dérivation du type d'aéroport à partir des pistes
 // --------------------------------------------------------------
 function deriveType(runways, helipads) {
@@ -403,6 +539,14 @@ function buildRecord(entry, acc) {
     runways: acc.runways,
     frequencies: acc.frequencies,
     helipads: acc.helipads,
+    // Places de stationnement, positionnées depuis la référence du terrain.
+    // C'est ici, et pas au parsing, parce que le nœud TAXI_PARKING ne connaît
+    // pas cette référence : elle vient du nœud AIRPORT, lu avant lui.
+    parkings: parkingsPositionnes(
+      acc.parkings,
+      a.latitude_deg != null ? a.latitude_deg : round(entry.latitude, 6),
+      a.longitude_deg != null ? a.longitude_deg : round(entry.longitude, 6)
+    ),
     source: 'msfs2024-simconnect',
   };
 }
@@ -413,6 +557,9 @@ function buildRecord(entry, acc) {
 // Options :
 //   window     : nb de requêtes détail simultanées (déf. 100)
 //   limit      : n'extraire que N aéroports (0 = tout)
+//   idents     : n'extraire QUE ces codes OACI (tableau). Sert au contrôle
+//                de cohérence des places de stationnement, qui a besoin de
+//                terrains CHOISIS et non des N premiers énumérés.
 //   outDir     : dossier de sortie (déf. Documents/NavXpressVFR/data)
 //   appName    : nom de l'app SimConnect (déf. 'NavXpressVFR-Extract')
 //   onProgress : callback(progressEvent) — voir formes ci-dessous
@@ -428,6 +575,9 @@ function buildRecord(entry, acc) {
 function runExtraction(opts = {}) {
   const WINDOW = opts.window > 0 ? opts.window : 100;
   const LIMIT = opts.limit > 0 ? opts.limit : 0;
+  const IDENTS = Array.isArray(opts.idents) && opts.idents.length
+    ? new Set(opts.idents.map((x) => String(x).trim().toUpperCase()))
+    : null;
   const OUT_DIR = opts.outDir || DEFAULT_OUT_DIR;
   const APP_NAME = opts.appName || 'BackcountryPathfinders-Extract';
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
@@ -538,7 +688,7 @@ function runExtraction(opts = {}) {
       while (inFlight.size < WINDOW && qpos < queue.length) {
         const entry = queue[qpos++];
         const reqId = reqSeq++;
-        const acc = { airport: null, runways: [], frequencies: [], helipads: [] };
+        const acc = { airport: null, runways: [], frequencies: [], helipads: [], parkings: [] };
         inFlight.set(reqId, { entry, startedAt: Date.now(), acc });
         let sendId;
         try {
@@ -579,7 +729,10 @@ function runExtraction(opts = {}) {
       detailStarted = true;
       detailStartTime = Date.now();
       lastProgressAt = Date.now();
-      queue = LIMIT > 0 ? airportList.slice(0, LIMIT) : airportList;
+      const choisis = IDENTS
+        ? airportList.filter((e) => IDENTS.has(String(e.icao).toUpperCase()))
+        : airportList;
+      queue = LIMIT > 0 ? choisis.slice(0, LIMIT) : choisis;
       qpos = 0;
       pump();
     }
@@ -644,6 +797,7 @@ function runExtraction(opts = {}) {
             case FacilityDataType.RUNWAY:    slot.acc.runways.push(parseRunwayNode(dd, surfaceCodes)); break;
             case FacilityDataType.FREQUENCY: slot.acc.frequencies.push(parseFrequencyNode(dd)); break;
             case FacilityDataType.HELIPAD:   slot.acc.helipads.push(parseHelipadNode(dd, surfaceCodes)); break;
+            case FacilityDataType.TAXI_PARKING: slot.acc.parkings.push(parseTaxiParkingNode(dd)); break;
             default: break;
           }
         } catch (_) { /* parsing partiel : on garde ce qu'on a */ }
@@ -703,7 +857,7 @@ function runExtraction(opts = {}) {
         if (timedOut > 0) pump();
 
         // Progression (dénominateur = total énuméré, ou LIMIT).
-        const target = LIMIT > 0 ? Math.min(LIMIT, airportList.length) : airportList.length;
+        const target = queue.length || (LIMIT > 0 ? Math.min(LIMIT, airportList.length) : airportList.length);
         const treated = writeIndex + failedEntries.length;
         const elapsed = (now - detailStartTime) / 1000;
         const rate = elapsed > 0 ? treated / elapsed : 0;
@@ -742,6 +896,12 @@ module.exports = {
   deriveType,
   buildRecord,
   surfaceLabel,
+  parkingIdent,
+  parkingLibelle,
+  parkingTypeLabel,
+  metresParDegre,
+  positionParking,
+  parkingsPositionnes,
 };
 
 // ==============================================================
@@ -755,6 +915,7 @@ if (require.main === module) {
   const LIMIT = parseInt(argVal('--limit', '0'), 10) || 0;
   const WINDOW = parseInt(argVal('--window', '100'), 10) || 100;
   const OUT_DIR = argVal('--out', DEFAULT_OUT_DIR);
+  const IDENTS = argVal('--idents', '').split(',').map((x) => x.trim()).filter(Boolean);
 
   const onProgress = (p) => {
     switch (p.phase) {
@@ -781,7 +942,7 @@ if (require.main === module) {
     }
   };
 
-  runExtraction({ window: WINDOW, limit: LIMIT, outDir: OUT_DIR, onProgress })
+  runExtraction({ window: WINDOW, limit: LIMIT, idents: IDENTS, outDir: OUT_DIR, onProgress })
     .then((s) => {
       console.log('\n\n──────────────────────────────────────────────');
       console.log(`Fin de l'extraction (${s.reason}).`);

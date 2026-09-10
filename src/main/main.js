@@ -673,6 +673,17 @@ ipcMain.handle('profil-vertical', async (_e, payload) => {
 ipcMain.handle('aeroports-bbox', async (_e, bbox) => airportsData.aeroportsDansBbox(bbox));
 ipcMain.handle('navaids-bbox', async (_e, bbox) => airportsData.navaidsDansBbox(bbox));
 ipcMain.handle('aeroport-par-code', async (_e, code) => airportsData.aeroportParCode(code));
+// Toutes les pistes d'un terrain, seuils compris : le tour de piste s'y construit.
+// Relecture ciblée du fichier à chaque appel (cf. airports-data) — rien n'est
+// gardé en mémoire pour ça.
+ipcMain.handle('details-aeroport', async (_e, ident) => airportsData.detailsAeroport(ident));
+// Pistes de l'emprise, pour la couche qui les trace à l'échelle. Le premier
+// appel bâtit l'index des terrains ; les suivants le lisent en quelques
+// millisecondes.
+ipcMain.handle('pistes-bbox', async (_e, bbox) => airportsData.pistesDansBbox(bbox));
+// Places de stationnement de l'emprise (zoom 15). Relecture ciblée du fichier :
+// à ce zoom, la fenêtre ne contient qu'un ou deux terrains.
+ipcMain.handle('parkings-bbox', async (_e, bbox) => airportsData.parkingsDansBbox(bbox));
 // Recherche d'un aérodrome ou d'un navaid par code OACI ou par nom (bouton « Rechercher »).
 ipcMain.handle('rechercher-lieux', async (_e, requete) => airportsData.rechercherLieux(requete));
 
